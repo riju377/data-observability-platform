@@ -594,6 +594,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  /* Show full path on hover */
+  cursor: help;
+  transition: opacity 0.2s ease;
+}
+
+.lineage-node .node-location:hover {
+  opacity: 0.9;
 }
 
 /* ===========================================

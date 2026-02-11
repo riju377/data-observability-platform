@@ -305,10 +305,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  /* Show full path on hover */
+  cursor: help;
+  transition: opacity 0.2s ease;
+}
+
+.node-location:hover {
+  opacity: 1;
 }
 
 .column-node.selected-node .node-location {
   color: rgba(255, 255, 255, 0.6);
+}
+
+.column-node.selected-node .node-location:hover {
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .node-column {

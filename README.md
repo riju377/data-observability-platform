@@ -170,8 +170,6 @@ Modern data teams face three critical problems:
 
 Existing solutions either cost $50K+/year (Monte Carlo, Datadog) or require manual instrumentation (Great Expectations). This platform provides **automated, zero-config observability** by hooking into Spark's execution engine directly.
 
-See [Interview Guide](docs/INTERVIEW-GUIDE.md) for detailed comparisons with alternatives.
-
 ## License
 
 Apache 2.0

@@ -403,6 +403,7 @@ class AnomalySeverity(str, Enum):
 class AnomalyStatus(str, Enum):
     """Anomaly status"""
     OPEN = "OPEN"
+    ALERTED = "ALERTED"
     ACKNOWLEDGED = "ACKNOWLEDGED"
     RESOLVED = "RESOLVED"
     FALSE_POSITIVE = "FALSE_POSITIVE"

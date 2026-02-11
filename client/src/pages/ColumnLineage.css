@@ -305,9 +305,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
-  /* Show full path on hover */
+  /* Custom tooltip styling */
   cursor: help;
   transition: opacity 0.2s ease;
+  position: relative;
 }
 
 .node-location:hover {
@@ -320,6 +321,53 @@
 
 .column-node.selected-node .node-location:hover {
   color: rgba(255, 255, 255, 0.85);
+}
+
+/* Custom Tooltip for Column Nodes */
+.node-location::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: rgba(26, 26, 46, 0.95);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  max-width: 400px;
+  word-break: break-all;
+  white-space: normal;
+  line-height: 1.4;
+  backdrop-filter: blur(4px);
+}
+
+/* Tooltip arrow */
+.node-location::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  border: 6px solid transparent;
+  border-top-color: rgba(26, 26, 46, 0.95);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 1001;
+}
+
+/* Show tooltip on hover */
+.node-location:hover::after,
+.node-location:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .node-column {

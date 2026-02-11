@@ -1,0 +1,624 @@
+/* ===========================================
+   Schema Tree - Modern Hierarchical View
+   =========================================== */
+
+/* Schema Tree Container */
+.schema-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.schema-tree.compact {
+  font-size: 0.75rem;
+}
+
+/* Schema Header */
+.schema-tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.04) 0%, rgba(118, 75, 162, 0.04) 100%);
+  border-bottom: 1px solid var(--border);
+}
+
+.schema-tree-header .field-count {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.schema-tree-header .complex-count {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Fields Container */
+.schema-tree-fields {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 0;
+}
+
+.schema-tree-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  background: var(--background);
+  border-radius: 8px;
+}
+
+/* ===========================================
+   Field Tree Item
+   =========================================== */
+
+.field-tree-item {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  --indent: calc(var(--level, 0) * 20px);
+  margin-left: var(--indent);
+}
+
+/* Tree connecting lines */
+.field-tree-item::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 0;
+  height: 50%;
+  width: 12px;
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 6px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Continue line for non-last items */
+.field-tree-item:not(.last)::after {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  bottom: -8px;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Hide lines for root level */
+.field-tree-item[style*="--level: 0"]::before,
+.field-tree-item[style*="--level: 0"]::after {
+  display: none;
+}
+
+/* ===========================================
+   Field Row - Main Content
+   =========================================== */
+
+.field-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0.35rem 0.5rem;
+  margin: 1px 0.5rem 1px 0;
+  border-radius: 6px;
+  cursor: default;
+  position: relative;
+  transition: all 0.15s ease;
+  min-height: 32px;
+  background: transparent;
+}
+
+.field-row.expandable {
+  cursor: pointer;
+}
+
+.field-row:hover {
+  background: rgba(102, 126, 234, 0.06);
+}
+
+.field-row.expanded {
+  background: rgba(102, 126, 234, 0.04);
+}
+
+.field-row.expandable:hover {
+  background: rgba(102, 126, 234, 0.08);
+}
+
+/* ===========================================
+   Expand Icon
+   =========================================== */
+
+.expand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-right: 6px;
+  align-self: center;
+}
+
+.expand-icon .chevron {
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.field-row.expandable:hover .chevron {
+  color: var(--primary);
+  transform: scale(1.1);
+}
+
+.expand-icon .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  opacity: 0.8;
+}
+
+/* ===========================================
+   Field Content - Name & Type
+   =========================================== */
+
+.field-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  min-width: 0;
+  gap: 12px;
+}
+
+/* Field Name */
+.field-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  max-width: 60%;
+}
+
+.field-name-text {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.15s ease;
+}
+
+.field-row:hover .field-name-text {
+  color: var(--primary-dark);
+}
+
+.required-indicator {
+  color: #ef4444;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+/* Copy Path Button */
+.copy-path-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 4px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.field-row:hover .copy-path-btn {
+  opacity: 0.6;
+}
+
+.copy-path-btn:hover {
+  opacity: 1 !important;
+  background: var(--primary);
+  color: white;
+}
+
+.copy-path-btn:active {
+  transform: scale(0.9);
+}
+
+/* ===========================================
+   Type Badge - Improved Design
+   =========================================== */
+
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: var(--background);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  color: var(--type-color, var(--text-muted));
+  border: 1px solid transparent;
+  flex-shrink: 0;
+  max-width: 200px;
+}
+
+.type-badge .type-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: inherit;
+  letter-spacing: -0.2px;
+}
+
+.field-row:hover .type-badge {
+  border-color: var(--type-color);
+  background: color-mix(in srgb, var(--type-color) 8%, var(--surface));
+  transform: translateX(-2px);
+}
+
+.type-icon {
+  display: flex;
+  align-items: center;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.child-count {
+  margin-left: 2px;
+  opacity: 0.65;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+/* Type-specific styling */
+.type-badge.type-struct {
+  background: rgba(156, 39, 176, 0.08);
+}
+
+.type-badge.type-array {
+  background: rgba(33, 150, 243, 0.08);
+}
+
+.type-badge.type-map {
+  background: rgba(255, 152, 0, 0.08);
+}
+
+.type-badge.type-primitive {
+  background: var(--background);
+}
+
+/* ===========================================
+   Tooltip
+   =========================================== */
+
+.field-tooltip {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 4px;
+  z-index: 100;
+  background: rgba(26, 26, 46, 0.95);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  animation: tooltipFadeIn 0.15s ease;
+  max-width: 300px;
+}
+
+.field-tooltip .tooltip-name {
+  font-weight: 600;
+  color: white;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+
+.field-tooltip .tooltip-path {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: 'SF Mono', 'Menlo', monospace;
+  word-break: break-all;
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===========================================
+   Nested Children
+   =========================================== */
+
+.field-children {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  margin-left: 8px;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===========================================
+   Controls - Show More/Less
+   =========================================== */
+
+.schema-tree-controls {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+}
+
+.schema-tree-controls:empty {
+  display: none;
+}
+
+.schema-tree-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 20px;
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.schema-tree-btn:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  border-style: solid;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.25);
+}
+
+.schema-tree-btn:active {
+  transform: translateY(0);
+}
+
+/* ===========================================
+   Responsive Design - Multi-breakpoint
+   =========================================== */
+
+/* Tablet and below */
+@media (max-width: 1024px) {
+  .schema-tree {
+    font-size: 0.78rem;
+  }
+
+  .field-tree-item {
+    --indent: calc(var(--level, 0) * 16px);
+  }
+
+  .field-content {
+    gap: 8px;
+  }
+
+  .field-name-wrapper {
+    max-width: 55%;
+  }
+
+  .type-badge {
+    padding: 2px 6px;
+    font-size: 0.68rem;
+    max-width: 160px;
+  }
+}
+
+/* Mobile landscape and small tablets */
+@media (max-width: 768px) {
+  .schema-tree {
+    font-size: 0.75rem;
+  }
+
+  .field-tree-item {
+    --indent: calc(var(--level, 0) * 14px);
+  }
+
+  .field-tree-item::before {
+    left: -10px;
+    width: 10px;
+  }
+
+  .field-tree-item:not(.last)::after {
+    left: -10px;
+  }
+
+  .field-row {
+    padding: 0.4rem 0.35rem;
+    gap: 0;
+    flex-wrap: wrap;
+  }
+
+  .field-content {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .field-name-wrapper {
+    max-width: 100%;
+    flex-basis: 100%;
+    margin-bottom: 2px;
+  }
+
+  .type-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    max-width: none;
+  }
+
+  .expand-icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .schema-tree-header {
+    padding: 0.4rem 0.6rem;
+  }
+}
+
+/* Mobile portrait */
+@media (max-width: 480px) {
+  .schema-tree {
+    font-size: 0.72rem;
+  }
+
+  .field-tree-item {
+    --indent: calc(var(--level, 0) * 12px);
+  }
+
+  .field-tree-item::before {
+    left: -8px;
+    width: 8px;
+  }
+
+  .field-tree-item:not(.last)::after {
+    left: -8px;
+  }
+
+  .field-row {
+    padding: 0.35rem 0.25rem;
+    margin-right: 0.25rem;
+  }
+
+  .field-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+
+  .field-name-wrapper {
+    max-width: 100%;
+  }
+
+  .type-badge {
+    margin-left: 20px;
+    font-size: 0.62rem;
+  }
+
+  .schema-tree-btn {
+    font-size: 0.65rem;
+    padding: 5px 10px;
+  }
+}
+
+/* ===========================================
+   Dark Mode Support
+   =========================================== */
+
+@media (prefers-color-scheme: dark) {
+  .field-tree-item::before,
+  .field-tree-item::after {
+    opacity: 0.25;
+  }
+
+  .field-row:hover {
+    background: rgba(102, 126, 234, 0.12);
+  }
+
+  .type-badge {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .field-tooltip {
+    background: rgba(10, 10, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* ===========================================
+   Accessibility
+   =========================================== */
+
+.field-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.schema-tree-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .field-row,
+  .type-badge,
+  .field-children,
+  .schema-tree-btn,
+  .copy-path-btn {
+    transition: none;
+  }
+
+  .field-children {
+    animation: none;
+  }
+
+  @keyframes tooltipFadeIn {
+    from { opacity: 1; }
+    to { opacity: 1; }
+  }
+}
+
+/* ===========================================
+   Print Styles
+   =========================================== */
+
+@media print {
+  .schema-tree {
+    break-inside: avoid;
+  }
+
+  .copy-path-btn,
+  .schema-tree-controls {
+    display: none;
+  }
+
+  .field-tree-item::before,
+  .field-tree-item::after {
+    border-color: #999;
+  }
+}

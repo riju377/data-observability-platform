@@ -1,0 +1,68 @@
+# SBT
+target/
+project/target/
+project/project/
+*.class
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.bsp/
+.metals/
+.bloop/
+
+# Scala
+.scala_dependencies
+.cache
+.cache-main
+.cache-tests
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Spark runtime artifacts
+data/
+derby.log
+metastore_db/
+spark-warehouse/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+
+# Environment files (contain credentials)
+.env
+.env.local
+.env.production
+
+# Node.js
+node_modules/
+client/dist/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+logs/
+*.log
+
+# Docker
+docker-compose.override.yml
+
+# Secrets
+*.pem
+*.key
+credentials.json
+
+# Backup files
+*.bak
+*.orig
+*.swp
+*~

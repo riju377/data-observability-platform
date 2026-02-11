@@ -1,0 +1,88 @@
+services:
+  # PostgreSQL for lineage graph storage
+  postgres:
+    image: postgres:16-alpine
+    container_name: observability-postgres
+    environment:
+      POSTGRES_USER: observability
+      POSTGRES_PASSWORD: observability123
+      POSTGRES_DB: lineage_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U observability"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Note: Spark cluster commented out for now - we'll run Spark in local mode
+  # The SamplePipeline runs with .master("local[*]") which doesn't need a cluster
+  # Uncomment these if you want to run distributed Spark jobs later
+
+  # spark-master:
+  #   image: bitnami/spark:latest
+  #   container_name: observability-spark-master
+  #   environment:
+  #     - SPARK_MODE=master
+  #   ports:
+  #     - "8080:8080"
+  #     - "7077:7077"
+  #   volumes:
+  #     - ./data:/opt/spark/data
+
+  # spark-worker:
+  #   image: bitnami/spark:latest
+  #   container_name: observability-spark-worker
+  #   environment:
+  #     - SPARK_MODE=worker
+  #     - SPARK_MASTER_URL=spark://spark-master:7077
+  #   depends_on:
+  #     - spark-master
+  #   volumes:
+  #     - ./data:/opt/spark/data
+
+  # Jupyter Notebook for analysis
+  jupyter:
+    image: jupyter/pyspark-notebook:spark-3.5.0
+    container_name: observability-jupyter
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - GRANT_SUDO=yes
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/data
+    command: start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''
+
+  # MinIO for S3-compatible storage (Iceberg tables)
+  minio:
+    image: minio/minio:latest
+    container_name: observability-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"
+      - "9001:9001"  # MinIO Console
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  minio_data:
+    driver: local
+
+networks:
+  default:
+    name: observability-network

@@ -1,0 +1,28 @@
+# FastAPI and web server
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database (psycopg3 has better Python 3.14 support)
+psycopg[binary]
+
+# Data validation
+pydantic
+pydantic-settings
+
+# CORS
+python-dotenv
+
+# Date handling
+python-dateutil
+
+# Email templating
+jinja2
+
+# HTTP Client
+requests
+
+# Authentication
+PyJWT
+bcrypt>=4.0.0
+email-validator>=2.0.0

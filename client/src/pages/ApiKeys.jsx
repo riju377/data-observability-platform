@@ -25,20 +25,33 @@ function ApiKeys() {
       if (showLoader) {
         setLoading(true);
       }
-      const response = await fetch('/api/v1/auth/api-keys', {
+
+      // Use explicit API URL from env or default to relative (which handled by proxy in dev, but needs rewrite in prod if not set)
+      // Better: use the same API_BASE as AuthContext
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${apiBase}/api/v1/auth/api-keys`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
+        if (response.status === 401) {
+          // Token expired or invalid, let AuthContext handle it or redirect
+          console.warn('API Keys fetch 401: Unauthorized');
+          return;
+        }
         throw new Error('Failed to fetch API keys');
       }
 
       const data = await response.json();
       setKeys(data);
     } catch (err) {
-      toast.error('Failed to load API keys', err.message);
+      console.error('API Keys Error:', err);
+      // Only show toast if it's NOT a "Unexpected token <" html error which spams
+      if (!err.message.includes('Unexpected token')) {
+        toast.error('Failed to load API keys', err.message);
+      }
     } finally {
       if (showLoader) {
         setLoading(false);
@@ -49,7 +62,7 @@ function ApiKeys() {
 
   useEffect(() => {
     fetchKeys();
-  }, [fetchKeys]);
+  }, []); // Run once on mount
 
   // Real-time validation
   const validateKeyName = (name) => {

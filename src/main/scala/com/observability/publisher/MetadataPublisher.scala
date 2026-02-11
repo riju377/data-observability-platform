@@ -5,7 +5,7 @@ import com.observability.models.{ColumnLineageEdge, JobMetadata, TableReference,
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.spark.SparkConf
 
-import java.util.concurrent.{ExecutorService, Executors, TimeUnit}
+import java.util.concurrent.{ExecutorService, Executors, ThreadFactory, TimeUnit}
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Success, Failure}
 
@@ -21,8 +21,21 @@ import scala.util.{Success, Failure}
  */
 object MetadataPublisher extends LazyLogging {
 
+  // Daemon thread factory so the JVM can exit even if pending calls remain.
+  // Without daemon threads, the pool keeps the JVM alive after main() completes,
+  // preventing Spark's shutdown hook (which calls onApplicationEnd → shutdown()) from firing.
+  private val daemonThreadFactory: ThreadFactory = new ThreadFactory {
+    private val delegate = Executors.defaultThreadFactory()
+    override def newThread(r: Runnable): Thread = {
+      val t = delegate.newThread(r)
+      t.setDaemon(true)
+      t.setName(s"observability-publisher-${t.getId}")
+      t
+    }
+  }
+
   // Dedicated thread pool for async API calls (2 threads is sufficient for fire-and-forget HTTP)
-  private val executor: ExecutorService = Executors.newFixedThreadPool(2)
+  private val executor: ExecutorService = Executors.newFixedThreadPool(2, daemonThreadFactory)
   private implicit val ec: ExecutionContext = ExecutionContext.fromExecutorService(executor)
 
   // Cached API client (initialized on first publish call, thread-safe)

@@ -160,9 +160,18 @@ object QueryPlanParser extends LazyLogging {
       return None
     }
 
-    // Pattern 1: SubqueryAlias - Most common for table reads
-    // We use reflection to avoid importing internal classes
+    // Pattern 1: SubqueryAlias - wraps both catalog tables and file-based reads
+    // If the child is a LogicalRelation, skip here and let the LogicalRelation
+    // handler (Pattern 2) determine the correct type (File vs Table).
+    // This prevents file reads from being incorrectly classified as Table.
     if (className == "SubqueryAlias") {
+      // Check if child is a LogicalRelation — if so, let Pattern 2 handle it
+      val hasLogicalRelationChild = node.children.exists(_.isInstanceOf[LogicalRelation])
+      if (hasLogicalRelationChild) {
+        logger.debug(s"SubqueryAlias has LogicalRelation child, deferring to LogicalRelation handler")
+        return None
+      }
+
       try {
         // Use reflection to access identifier.name
         val identifierField = node.getClass.getMethod("identifier")

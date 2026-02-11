@@ -98,8 +98,9 @@ function ApiKeys() {
 
     setCreating(true);
 
+    const apiBase = import.meta.env.VITE_API_URL || '';
     try {
-      const response = await fetch('/api/v1/auth/api-keys', {
+      const response = await fetch(`${apiBase}/api/v1/auth/api-keys`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -137,8 +138,9 @@ function ApiKeys() {
 
     setDeletingId(keyId);
 
+    const apiBase = import.meta.env.VITE_API_URL || '';
     try {
-      const response = await fetch(`/api/v1/auth/api-keys/${keyId}`, {
+      const response = await fetch(`${apiBase}/api/v1/auth/api-keys/${keyId}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,

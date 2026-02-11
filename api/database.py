@@ -15,7 +15,7 @@ DB_CONFIG = {
     "dbname": os.getenv("DB_NAME", "defaultdb"),
     "user": os.getenv("DB_USER", "dbuser"),
     "password": os.getenv("DB_PASSWORD", "dbpassword"),
-    "sslmode": os.getenv("DB_SSLMODE", "require")
+    "sslmode": os.getenv("DB_SSLMODE", "prefer")
 }
 
 

@@ -129,13 +129,13 @@ function Lineage() {
     // Calculate max upstream level
     const maxUpstreamLevel = Math.max(0, ...Array.from(upstreamByLevel.keys()));
 
-    // Position constants - Improved spacing for better visibility
-    const nodeWidth = 200;
-    const nodeHeight = 60;
-    const horizontalGap = 300;
-    const verticalGap = 120;
-    const centerX = 500;
-    const centerY = 300;
+    // Position constants - Improved spacing to prevent overlapping
+    const nodeWidth = 280;
+    const nodeHeight = 80;
+    const horizontalGap = 450;
+    const verticalGap = 150;
+    const centerX = 600;
+    const centerY = 400;
 
     // Helper: build JSX label showing name + type badge + location path
     const buildNodeLabel = (d) => (
@@ -169,9 +169,7 @@ function Lineage() {
         border: '3px solid #fff',
         boxShadow: '0 8px 20px rgba(102, 126, 234, 0.5), 0 0 0 4px rgba(102, 126, 234, 0.1)',
         fontSize: '0.9375rem',
-        minWidth: '10rem',
-        width: 'fit-content',
-        maxWidth: '25rem',
+        width: `${nodeWidth}px`,
         textAlign: 'center',
       },
     });
@@ -196,9 +194,7 @@ function Lineage() {
             border: '2px solid #fff',
             boxShadow: '0 4px 12px rgba(76, 175, 80, 0.4), 0 0 0 3px rgba(76, 175, 80, 0.1)',
             fontSize: '0.875rem',
-            minWidth: '10rem',
-            width: 'fit-content',
-            maxWidth: '25rem',
+            width: `${nodeWidth}px`,
             textAlign: 'center',
           },
         });
@@ -225,9 +221,7 @@ function Lineage() {
             border: '2px solid #fff',
             boxShadow: '0 4px 12px rgba(255, 152, 0, 0.4), 0 0 0 3px rgba(255, 152, 0, 0.1)',
             fontSize: '0.875rem',
-            minWidth: '10rem',
-            width: 'fit-content',
-            maxWidth: '25rem',
+            width: `${nodeWidth}px`,
             textAlign: 'center',
           },
         });

@@ -141,12 +141,12 @@ function ColumnLineage() {
     // Create a unique key for each column (dataset.column)
     const nodeMap = new Map();
 
-    // Position constants
-    const nodeWidth = 200;
-    const horizontalGap = 280;
-    const verticalGap = 100;
-    const centerX = 500;
-    const centerY = 250;
+    // Position constants - increased to prevent overlapping
+    const nodeWidth = 240;
+    const horizontalGap = 400;
+    const verticalGap = 140;
+    const centerX = 600;
+    const centerY = 350;
 
     // Helper: get dataset info from the lookup map
     const getDatasetInfo = (name) => datasetMap.get(name) || {};
@@ -180,7 +180,7 @@ function ColumnLineage() {
         borderRadius: '10px',
         border: 'none',
         boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
-        minWidth: `${nodeWidth}px`,
+        width: `${nodeWidth}px`,
       },
     });
 
@@ -243,7 +243,7 @@ function ColumnLineage() {
             borderRadius: '8px',
             border: `2px solid ${transformColor}`,
             boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            minWidth: `${nodeWidth - 20}px`,
+            width: `${nodeWidth}px`,
           },
         });
       });
@@ -290,7 +290,7 @@ function ColumnLineage() {
             borderRadius: '8px',
             border: `2px solid ${transformColor}`,
             boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            minWidth: `${nodeWidth - 20}px`,
+            width: `${nodeWidth}px`,
           },
         });
       });

@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, MarkerType } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { getDatasets, getDatasetColumns, getColumnLineageGraph, getColumnImpact } from '../services/api';
-import { Network, ChevronDown, Loader2, Database, Code, AlertTriangle, Zap, Target } from 'lucide-react';
+import { Network, ChevronDown, Loader2, Database, Code, AlertTriangle, Zap, Target, Copy, Check } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './ColumnLineage.css';
@@ -34,6 +34,7 @@ function ColumnLineage() {
   const [showImpact, setShowImpact] = useState(false);
   const [impactData, setImpactData] = useState(null);
   const [impactLoading, setImpactLoading] = useState(false);
+  const [copiedPath, setCopiedPath] = useState(null);
 
   useEffect(() => {
     loadDatasets();
@@ -126,6 +127,15 @@ function ColumnLineage() {
     setShowImpact(!showImpact);
   };
 
+  // Copy to clipboard handler
+  const handleCopyPath = useCallback((path, event) => {
+    event.stopPropagation();
+    navigator.clipboard.writeText(path).then(() => {
+      setCopiedPath(path);
+      setTimeout(() => setCopiedPath(null), 2000);
+    });
+  }, []);
+
   // Lookup map: dataset name → { location, dataset_type }
   const datasetMap = useMemo(() => {
     const map = new Map();
@@ -136,7 +146,13 @@ function ColumnLineage() {
   const { nodes, edges } = useMemo(() => {
     if (!lineageData) return { nodes: [], edges: [] };
 
-    const { dataset_name, column_name, upstream, downstream, edges: lineageEdges } = lineageData;
+    const {
+      dataset_name = '',
+      column_name = '',
+      upstream = [],
+      downstream = [],
+      edges: lineageEdges = []
+    } = lineageData;
 
     // Create a unique key for each column (dataset.column)
     const nodeMap = new Map();
@@ -166,7 +182,20 @@ function ColumnLineage() {
               <span className="node-dataset">{dataset_name}</span>
             </div>
             {selectedInfo.location && (
-              <div className="node-location" title={selectedInfo.location}>{selectedInfo.location}</div>
+              <div className="node-location-wrapper">
+                <div className="node-location" title={selectedInfo.location}>{selectedInfo.location}</div>
+                <button
+                  className="copy-path-btn"
+                  onClick={(e) => handleCopyPath(selectedInfo.location, e)}
+                  title="Copy full path"
+                >
+                  {copiedPath === selectedInfo.location ? (
+                    <Check size={12} />
+                  ) : (
+                    <Copy size={12} />
+                  )}
+                </button>
+              </div>
             )}
             <div className="node-column">{column_name}</div>
           </div>
@@ -224,7 +253,20 @@ function ColumnLineage() {
                   <span className="node-dataset">{col.dataset_name}</span>
                 </div>
                 {colInfo.location && (
-                  <div className="node-location" title={colInfo.location}>{colInfo.location}</div>
+                  <div className="node-location-wrapper">
+                    <div className="node-location" title={colInfo.location}>{colInfo.location}</div>
+                    <button
+                      className="copy-path-btn"
+                      onClick={(e) => handleCopyPath(colInfo.location, e)}
+                      title="Copy full path"
+                    >
+                      {copiedPath === colInfo.location ? (
+                        <Check size={12} />
+                      ) : (
+                        <Copy size={12} />
+                      )}
+                    </button>
+                  </div>
                 )}
                 <div className="node-column">{col.column_name}</div>
                 {col.transform_type && (
@@ -271,7 +313,20 @@ function ColumnLineage() {
                   <span className="node-dataset">{col.dataset_name}</span>
                 </div>
                 {colInfo.location && (
-                  <div className="node-location" title={colInfo.location}>{colInfo.location}</div>
+                  <div className="node-location-wrapper">
+                    <div className="node-location" title={colInfo.location}>{colInfo.location}</div>
+                    <button
+                      className="copy-path-btn"
+                      onClick={(e) => handleCopyPath(colInfo.location, e)}
+                      title="Copy full path"
+                    >
+                      {copiedPath === colInfo.location ? (
+                        <Check size={12} />
+                      ) : (
+                        <Copy size={12} />
+                      )}
+                    </button>
+                  </div>
                 )}
                 <div className="node-column">{col.column_name}</div>
                 {col.transform_type && (

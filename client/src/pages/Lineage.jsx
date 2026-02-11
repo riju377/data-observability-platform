@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, MarkerType } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { getDatasets, getLineageGraph } from '../services/api';
-import { GitBranch, ChevronDown, ArrowRight, Loader2, Database } from 'lucide-react';
+import { GitBranch, ChevronDown, ArrowRight, Loader2, Database, Copy, Check } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './Lineage.css';
@@ -13,6 +13,7 @@ function Lineage() {
   const [lineageData, setLineageData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [copiedPath, setCopiedPath] = useState(null);
 
   useEffect(() => {
     loadDatasets();
@@ -45,6 +46,15 @@ function Lineage() {
     }
     setLoading(false);
   };
+
+  // Copy to clipboard handler
+  const handleCopyPath = useCallback((path, event) => {
+    event.stopPropagation();
+    navigator.clipboard.writeText(path).then(() => {
+      setCopiedPath(path);
+      setTimeout(() => setCopiedPath(null), 2000);
+    });
+  }, []);
 
   // Compute node positions based on graph structure
   const { nodes, edges } = useMemo(() => {
@@ -147,7 +157,20 @@ function Lineage() {
           <span className="node-name">{d.name}</span>
         </div>
         {d.location && (
-          <div className="node-location" title={d.location}>{d.location}</div>
+          <div className="node-location-wrapper">
+            <div className="node-location" title={d.location}>{d.location}</div>
+            <button
+              className="copy-path-btn"
+              onClick={(e) => handleCopyPath(d.location, e)}
+              title="Copy full path"
+            >
+              {copiedPath === d.location ? (
+                <Check size={12} />
+              ) : (
+                <Copy size={12} />
+              )}
+            </button>
+          </div>
         )}
       </div>
     );

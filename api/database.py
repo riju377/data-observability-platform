@@ -10,12 +10,12 @@ import os
 
 # Database configuration (Aiven PostgreSQL)
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "pg-3e54a605-rijum8153-c2c2.j.aivencloud.com"),
-    "port": int(os.getenv("DB_PORT", 15077)),
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", 5432)),
     "dbname": os.getenv("DB_NAME", "defaultdb"),
-    "user": os.getenv("DB_USER", "avnadmin"),
-    "password": os.getenv("DB_PASSWORD", "placeholder_password"),
-    "sslmode": "require"
+    "user": os.getenv("DB_USER", "dbuser"),
+    "password": os.getenv("DB_PASSWORD", "dbpassword"),
+    "sslmode": os.getenv("DB_SSLMODE", "require")
 }
 
 

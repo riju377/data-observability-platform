@@ -8,15 +8,27 @@ from typing import Generator
 
 import os
 
-# Database configuration (Aiven PostgreSQL)
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", 5432)),
-    "dbname": os.getenv("DB_NAME", "defaultdb"),
-    "user": os.getenv("DB_USER", "dbuser"),
-    "password": os.getenv("DB_PASSWORD", "dbpassword"),
-    "sslmode": os.getenv("DB_SSLMODE", "prefer")
-}
+# Database configuration (Aiven PostgreSQL or Render)
+# Prioritize DATABASE_URL for Render deployment
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if DATABASE_URL:
+    # Render provides a full connection string: postgres://user:pass@host/db
+    # psycopg.connect can handle this directly without parsing
+    DB_CONFIG = {
+        "conninfo": DATABASE_URL,
+        "sslmode": "require" # Render usually requires SSL
+    }
+else:
+    # Local development or individual vars
+    DB_CONFIG = {
+        "host": os.getenv("DB_HOST", "localhost"),
+        "port": int(os.getenv("DB_PORT", 5432)),
+        "dbname": os.getenv("DB_NAME", "defaultdb"),
+        "user": os.getenv("DB_USER", "dbuser"),
+        "password": os.getenv("DB_PASSWORD", "dbpassword"),
+        "sslmode": os.getenv("DB_SSLMODE", "prefer")
+    }
 
 
 @contextmanager

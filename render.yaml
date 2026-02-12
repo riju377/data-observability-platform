@@ -1,0 +1,29 @@
+services:
+  # Python Backend API
+  - type: web
+    name: data-observability-api
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: api
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: data-observability-db
+          property: connectionString
+      # Map internal DATABASE_URL to our app's expected env vars
+      # Note: Render provides a single connection string, so we'll need to parse it
+      # or update database.py to handle DATABASE_URL. 
+      # Since clear_db.py and database.py expect individual fields, 
+      # let's update database.py to support DATABASE_URL first!
+
+databases:
+  - name: data-observability-db
+    databaseName: data_observability
+    user: dbuser
+    plan: free
+    region: oregon

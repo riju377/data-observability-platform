@@ -461,6 +461,80 @@ GROUP BY dataset_name
 ORDER BY depth, dataset_name;
 $$ LANGUAGE SQL;
 
+-- Function to get all upstream column dependencies
+CREATE OR REPLACE FUNCTION get_upstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR)
+RETURNS TABLE(dataset_name VARCHAR, column_name VARCHAR, transform_type VARCHAR, expression TEXT, depth INTEGER) AS $$
+WITH RECURSIVE upstream AS (
+    -- Base case: find direct parents
+    SELECT
+        ds.name as dataset_name,
+        cle.source_column as column_name,
+        cle.transform_type,
+        cle.expression,
+        1 as depth
+    FROM column_lineage_edges cle
+    JOIN datasets dt ON cle.target_dataset_id = dt.id
+    JOIN datasets ds ON cle.source_dataset_id = ds.id
+    WHERE dt.name = dataset_name_param AND cle.target_column = column_name_param
+
+    UNION
+
+    -- Recursive case: find parents of parents
+    SELECT
+        ds.name as dataset_name,
+        cle.source_column as column_name,
+        cle.transform_type,
+        cle.expression,
+        u.depth + 1 as depth
+    FROM upstream u
+    JOIN datasets dt ON u.dataset_name = dt.name
+    JOIN column_lineage_edges cle ON dt.id = cle.target_dataset_id AND u.column_name = cle.target_column
+    JOIN datasets ds ON cle.source_dataset_id = ds.id
+    WHERE u.depth < 10
+)
+SELECT DISTINCT dataset_name, column_name, transform_type, expression, MIN(depth) as depth
+FROM upstream
+GROUP BY dataset_name, column_name, transform_type, expression
+ORDER BY depth, dataset_name;
+$$ LANGUAGE SQL;
+
+-- Function to get all downstream column dependencies
+CREATE OR REPLACE FUNCTION get_downstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR)
+RETURNS TABLE(dataset_name VARCHAR, column_name VARCHAR, transform_type VARCHAR, expression TEXT, depth INTEGER) AS $$
+WITH RECURSIVE downstream AS (
+    -- Base case: find direct children
+    SELECT
+        dt.name as dataset_name,
+        cle.target_column as column_name,
+        cle.transform_type,
+        cle.expression,
+        1 as depth
+    FROM column_lineage_edges cle
+    JOIN datasets ds ON cle.source_dataset_id = ds.id
+    JOIN datasets dt ON cle.target_dataset_id = dt.id
+    WHERE ds.name = dataset_name_param AND cle.source_column = column_name_param
+
+    UNION
+
+    -- Recursive case: find children of children
+    SELECT
+        dt.name as dataset_name,
+        cle.target_column as column_name,
+        cle.transform_type,
+        cle.expression,
+        d.depth + 1 as depth
+    FROM downstream d
+    JOIN datasets ds ON d.dataset_name = ds.name
+    JOIN column_lineage_edges cle ON ds.id = cle.source_dataset_id AND d.column_name = cle.source_column
+    JOIN datasets dt ON cle.target_dataset_id = dt.id
+    WHERE d.depth < 10
+)
+SELECT DISTINCT dataset_name, column_name, transform_type, expression, MIN(depth) as depth
+FROM downstream
+GROUP BY dataset_name, column_name, transform_type, expression
+ORDER BY depth, dataset_name;
+$$ LANGUAGE SQL;
+
 -- =====================================================
 -- SEED DATA
 -- =====================================================

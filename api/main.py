@@ -49,7 +49,26 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_headers=["*"],
 )
+
+# Global Exception Handler for logging
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import traceback
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = f"Unhandled Exception: {str(exc)}\n{traceback.format_exc()}"
+    logger.error(error_msg)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "debug_message": str(exc)}
+    )
 
 # Include API Gateway routers
 app.include_router(ingest_router.router)

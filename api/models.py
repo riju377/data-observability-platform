@@ -309,7 +309,7 @@ class SchemaVersion(BaseModel):
     """Schema version with SCD Type 2 tracking"""
     id: str
     dataset_id: str
-    schema_json: Dict[str, Any]
+    schema_data: Dict[str, Any]
     schema_hash: str
     valid_from: datetime
     valid_to: Optional[datetime] = None

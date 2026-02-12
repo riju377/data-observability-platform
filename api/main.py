@@ -688,7 +688,7 @@ async def get_current_schema(dataset_name: str, org: OrgContext = Depends(get_cu
         SELECT
             sv.id::text,
             sv.dataset_id::text,
-            sv.schema_json,
+            sv.schema_json as schema_data,
             sv.schema_hash,
             sv.valid_from,
             sv.valid_to,
@@ -739,7 +739,7 @@ async def get_schema_history(
         SELECT
             sv.id::text,
             sv.dataset_id::text,
-            sv.schema_json,
+            sv.schema_json as schema_data,
             sv.schema_hash,
             sv.valid_from,
             sv.valid_to,
@@ -796,7 +796,7 @@ async def get_schema_diff(
         query = """
             SELECT
                 sv.id::text,
-                sv.schema_json,
+                sv.schema_json as schema_data,
                 sv.valid_from
             FROM schema_versions sv
             WHERE sv.id::text = %s
@@ -811,8 +811,8 @@ async def get_schema_diff(
             raise HTTPException(status_code=404, detail=f"Schema version '{to_version}' not found")
 
         # Parse schema fields
-        from_fields = {f['name']: f for f in from_schema['schema_json'].get('fields', [])}
-        to_fields = {f['name']: f for f in to_schema['schema_json'].get('fields', [])}
+        from_fields = {f['name']: f for f in from_schema['schema_data'].get('fields', [])}
+        to_fields = {f['name']: f for f in to_schema['schema_data'].get('fields', [])}
 
         changes = []
         added_count = 0

@@ -5,135 +5,141 @@ import { useAuth } from '../context/AuthContext';
 const API_BASE = import.meta.env.VITE_API_URL;
 
 function Register() {
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [error, setError] = useState('');
-    const [loading, setLoading] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-    const navigate = useNavigate();
+  const navigate = useNavigate();
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setError('');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
 
-        if (password !== confirmPassword) {
-            setError('Passwords do not match');
-            return;
-        }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
 
-        if (password.length < 6) {
-            setError('Password must be at least 6 characters');
-            return;
-        }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
 
-        setLoading(true);
+    setLoading(true);
 
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, name })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('Registration failed:', response.status, text);
         try {
-            const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password, name })
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || 'Registration failed');
-            }
-
-            const data = await response.json();
-            // Auto-login after registration
-            localStorage.setItem('token', data.access_token);
-            navigate('/', { replace: true });
-            window.location.reload(); // Refresh to pick up new token
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
+          const data = JSON.parse(text);
+          throw new Error(data.detail || 'Registration failed');
+        } catch (e) {
+          throw new Error(`Registration failed (${response.status}): ${text.substring(0, 100)}...`);
         }
-    };
+      }
 
-    return (
-        <div className="login-container">
-            <div className="login-card">
-                <div className="login-header">
-                    <h1>Data Observability</h1>
-                    <p>Create your account</p>
-                </div>
+      const data = await response.json();
+      // Auto-login after registration
+      localStorage.setItem('token', data.access_token);
+      navigate('/', { replace: true });
+      window.location.reload(); // Refresh to pick up new token
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-                <form onSubmit={handleSubmit} className="login-form">
-                    {error && (
-                        <div className="login-error">
-                            {error}
-                        </div>
-                    )}
+  return (
+    <div className="login-container">
+      <div className="login-card">
+        <div className="login-header">
+          <h1>Data Observability</h1>
+          <p>Create your account</p>
+        </div>
 
-                    <div className="form-group">
-                        <label htmlFor="name">Full Name</label>
-                        <input
-                            id="name"
-                            type="text"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="John Doe"
-                            required
-                            autoFocus
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label htmlFor="email">Email</label>
-                        <input
-                            id="email"
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="you@example.com"
-                            required
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label htmlFor="password">Password</label>
-                        <input
-                            id="password"
-                            type="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="••••••••"
-                            required
-                            minLength={6}
-                        />
-                    </div>
-
-                    <div className="form-group">
-                        <label htmlFor="confirmPassword">Confirm Password</label>
-                        <input
-                            id="confirmPassword"
-                            type="password"
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            placeholder="••••••••"
-                            required
-                        />
-                    </div>
-
-                    <button
-                        type="submit"
-                        className="login-button"
-                        disabled={loading}
-                    >
-                        {loading ? 'Creating Account...' : 'Create Account'}
-                    </button>
-                </form>
-
-                <div className="login-footer">
-                    <p>Already have an account? <Link to="/login" className="auth-link">Sign In</Link></p>
-                </div>
+        <form onSubmit={handleSubmit} className="login-form">
+          {error && (
+            <div className="login-error">
+              {error}
             </div>
+          )}
 
-            <style>{`
+          <div className="form-group">
+            <label htmlFor="name">Full Name</label>
+            <input
+              id="name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="John Doe"
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="confirmPassword">Confirm Password</label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="login-button"
+            disabled={loading}
+          >
+            {loading ? 'Creating Account...' : 'Create Account'}
+          </button>
+        </form>
+
+        <div className="login-footer">
+          <p>Already have an account? <Link to="/login" className="auth-link">Sign In</Link></p>
+        </div>
+      </div>
+
+      <style>{`
         .login-container {
           min-height: 100vh;
           display: flex;
@@ -260,8 +266,8 @@ function Register() {
           text-decoration: underline;
         }
       `}</style>
-        </div>
-    );
+    </div>
+  );
 }
 
 export default Register;

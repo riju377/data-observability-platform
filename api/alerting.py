@@ -313,7 +313,7 @@ class AlertEngine:
             WHERE ah.alert_rule_id = %s
             AND d.name = %s
             AND a.anomaly_type = %s
-            AND ah.sent_at > NOW() - INTERVAL '%s minutes'
+            AND ah.sent_at > NOW() - (%s * INTERVAL '1 minute')
             AND ah.status = 'SENT'
         """
         result = execute_single(query, (

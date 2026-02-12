@@ -322,7 +322,7 @@ class SchemaVersion(BaseModel):
             "example": {
                 "id": "schema-123",
                 "dataset_id": "dataset-456",
-                "schema_json": {
+                "schema_data": {
                     "fields": [
                         {"name": "id", "type": "int", "nullable": False},
                         {"name": "name", "type": "string", "nullable": True}

@@ -452,6 +452,7 @@ Matches detected anomalies against user-defined alert rules and dispatches notif
 
 **Rule matching** (`_matches_rule()`):
 - Dataset name: supports exact match (`sales_daily`), wildcard prefix (`sales_*`), or catch-all (`*` / NULL)
+- Anomaly type: exact match or NULL (matches all)
 - Severity: exact match or NULL (matches all)
 
 #### AlertFactory and Providers
@@ -1408,6 +1409,7 @@ For each anomaly:
   |
   +-> _matches_rule() for each rule:
   |     - Dataset name pattern match
+  |     - Anomaly type match
   |     - Severity match
   |
   +-> For each matching rule:

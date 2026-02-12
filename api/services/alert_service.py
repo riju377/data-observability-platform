@@ -37,10 +37,11 @@ class AlertService:
 
             dataset_name = anomaly['dataset_name']
             severity = anomaly['severity']
+            anomaly_type = anomaly.get('anomaly_type')
 
             matching_rules = [
                 r for r in rules
-                if AlertService._matches_rule(r, dataset_name, severity)
+                if AlertService._matches_rule(r, dataset_name, severity, anomaly_type)
             ]
 
             for rule in matching_rules:
@@ -61,7 +62,7 @@ class AlertService:
         return execute_query(query, (org_id,))
 
     @staticmethod
-    def _matches_rule(rule: dict, dataset_name: str, severity: str) -> bool:
+    def _matches_rule(rule: dict, dataset_name: str, severity: str, anomaly_type: str = None) -> bool:
         # Dataset name pattern matching (supports wildcard: "sales_*", "*", or exact)
         pattern = rule.get('dataset_name') or '*'
         if pattern != '*':
@@ -70,6 +71,11 @@ class AlertService:
                     return False
             elif dataset_name != pattern:
                 return False
+
+        # Anomaly type matching (if the rule specifies one)
+        rule_anomaly_type = rule.get('anomaly_type')
+        if rule_anomaly_type and anomaly_type and rule_anomaly_type != anomaly_type:
+            return False
 
         # Severity matching
         rule_severity = rule.get('severity')

@@ -20,9 +20,9 @@
 
 set -e
 
-API_URL="${API_URL:-http://localhost:8000}"
+API_URL="${API_URL:-https://data-observability-api.onrender.com}"
 API_KEY="${API_KEY:-obs_live_CEsbjnPVpAPIRsBefSVVZ20zGh_dvoq73P8Z-GGB94A}"
-JAR_PATH="${JAR_PATH:-target/scala-2.12/data-observability-platform-assembly-1.1.0.jar}"
+JAR_PATH="${JAR_PATH:-target/scala-2.12/data-observability-platform-assembly-1.2.0.jar}"
 
 echo "=============================================="
 echo " Schema Evolution Demo"

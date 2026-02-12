@@ -77,11 +77,11 @@ function Schema() {
     const oldFields = {};
     const newFields = {};
 
-    (older.schema_json?.fields || []).forEach(f => {
+    (older.schema_data?.fields || []).forEach(f => {
       oldFields[f.name] = f;
     });
 
-    (newer.schema_json?.fields || []).forEach(f => {
+    (newer.schema_data?.fields || []).forEach(f => {
       newFields[f.name] = f;
     });
 
@@ -299,11 +299,11 @@ function Schema() {
                   <div className="schema-fields">
                     <div className="fields-header">
                       <Database size={14} />
-                      <span>{version.schema_json?.fields?.length || 0} fields</span>
+                      <span>{version.schema_data?.fields?.length || 0} fields</span>
                     </div>
                     <div className="schema-tree-container">
                       <SchemaTree
-                        fields={version.schema_json?.fields || []}
+                        fields={version.schema_data?.fields || []}
                         maxVisible={MAX_VISIBLE_FIELDS}
                       />
                     </div>

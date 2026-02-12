@@ -1,7 +1,7 @@
 name := "data-observability-platform"
 // Use io.github.yourusername for auto-approved namespace
 organization := "io.github.riju377"
-version := "1.1.0"
+version := "1.2.0"
 scalaVersion := "2.12.18"
 
 // Spark dependencies (marked as "provided" so they're not bundled)
@@ -92,7 +92,11 @@ credentials += Credentials(Path.userHome / ".sbt" / "sonatype_central_credential
 // New Central Portal publishing (sbt 1.11.0+)
 // https://www.scala-sbt.org/1.x/docs/Using-Sonatype.html
 ThisBuild / sonatypeCredentialHost := "central.sonatype.com"
-ThisBuild / publishTo := sonatypePublishToBundle.value
+ThisBuild / publishTo := {
+  val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
+  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
+  else localStaging.value
+}
 
 // ============================================
 // Compiler options

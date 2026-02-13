@@ -13,41 +13,50 @@
 #   V5: id/name NOT NULL           (breaking nullability)
 #
 # Configuration via environment variables:
-#   API_URL  - Backend API URL (default: http://localhost:8000)
-#   API_KEY  - API key for authentication
-#   JAR_PATH - Path to assembly JAR
+#   API_KEY  - API key for authentication (or prompted interactively)
+#   API_URL  - Override backend URL (optional, defaults to Render)
 # ============================================================
 
 set -e
 
-API_URL="${API_URL:-https://data-observability-api.onrender.com}"
-API_KEY="${API_KEY:-obs_live_CEsbjnPVpAPIRsBefSVVZ20zGh_dvoq73P8Z-GGB94A}"
-JAR_PATH="${JAR_PATH:-target/scala-2.12/data-observability-platform-assembly-1.2.0.jar}"
+PACKAGE="io.github.riju377:data-observability-platform_2.12:2.13.0"
 
 echo "=============================================="
 echo " Schema Evolution Demo"
 echo "=============================================="
-echo "  API URL: $API_URL"
-echo "  JAR:     $JAR_PATH"
 echo ""
 
-# Check JAR exists
-if [ ! -f "$JAR_PATH" ]; then
-  echo "ERROR: JAR not found at $JAR_PATH"
-  echo "Build it with: sbt assembly"
-  exit 1
+# ---- API Key ----
+if [ -z "$API_KEY" ]; then
+  echo "  An API key is required to send data to the platform."
+  echo ""
+  echo "  Don't have one? Create it from the dashboard:"
+  echo "  → https://data-observability.vercel.app/api-keys"
+  echo ""
+  read -p "  Enter your API key: " API_KEY
+  echo ""
+
+  if [ -z "$API_KEY" ]; then
+    echo "  ✗ No API key provided. Exiting."
+    exit 1
+  fi
 fi
+
+echo "  Package: $PACKAGE"
+echo "  API Key: ${API_KEY:0:12}..."
+echo ""
 
 # Clean up leftover Spark artifacts from previous runs
 rm -rf spark-warehouse/demo_customers metastore_db derby.log
 
 spark-submit \
+  --packages "$PACKAGE" \
   --class com.observability.examples.SchemaEvolutionDemo \
   --master "local[*]" \
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
-  --conf "spark.observability.api.url=${API_URL}" \
   --conf "spark.observability.api.key=${API_KEY}" \
-  "$JAR_PATH"
+  ${API_URL:+--conf "spark.observability.api.url=${API_URL}"} \
+  dummy.jar
 
 echo ""
 echo "=============================================="
@@ -55,10 +64,10 @@ echo " Done! Verify results:"
 echo "=============================================="
 echo ""
 echo "  # View schema history (5 versions)"
-echo "  curl '${API_URL}/datasets/demo_customers/schema/history'"
+echo "  curl 'https://data-observability-api.onrender.com/datasets/demo_customers/schema/history'"
 echo ""
 echo "  # View current schema"
-echo "  curl '${API_URL}/datasets/demo_customers/schema'"
+echo "  curl 'https://data-observability-api.onrender.com/datasets/demo_customers/schema'"
 echo ""
-echo "  # Or view in the UI at http://localhost:5173"
+echo "  # Or view in the UI at https://data-observability.vercel.app"
 echo ""

@@ -41,12 +41,19 @@ class EmailProvider(AlertProvider):
 
     def __init__(self):
         self.backend = os.getenv('EMAIL_BACKEND', 'console')
+        # SMTP (legacy/blocked on Render free tier)
         self.smtp_host = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
         self.smtp_port = int(os.getenv('EMAIL_PORT', '587'))
         self.use_tls = os.getenv('EMAIL_USE_TLS', 'true').lower() == 'true'
         self.username = os.getenv('EMAIL_USERNAME')
         self.password = os.getenv('EMAIL_PASSWORD')
         self.from_email = os.getenv('EMAIL_FROM', 'Data Observability <noreply@dataobs.com>')
+        
+        # Gmail API (OAuth 2.0)
+        self.gmail_client_id = os.getenv('GMAIL_CLIENT_ID')
+        self.gmail_client_secret = os.getenv('GMAIL_CLIENT_SECRET')
+        self.gmail_refresh_token = os.getenv('GMAIL_REFRESH_TOKEN')
+        
         self.api_base_url = os.getenv('API_BASE_URL', 'http://localhost:8000')
         self.template_env = Environment(loader=FileSystemLoader('templates'))
 
@@ -66,6 +73,8 @@ class EmailProvider(AlertProvider):
                 return self._send_console(to_emails, subject, html_body)
             elif self.backend in ['smtp', 'gmail']:
                 return self._send_smtp(to_emails, cc_emails, subject, html_body)
+            elif self.backend == 'gmail_api':
+                return self._send_gmail_api(to_emails, cc_emails, subject, html_body)
             else:
                 return {"status": "FAILED", "error": f"Unknown email backend: {self.backend}"}
         except Exception as e:
@@ -132,6 +141,60 @@ class EmailProvider(AlertProvider):
                 server.login(self.username, self.password)
             server.send_message(msg)
         return {"status": "SENT", "backend": "smtp"}
+
+    def _send_gmail_api(self, to_emails, cc_emails, subject, html_body):
+        """Send email via Google Gmail API (OAuth 2.0).
+        
+        Requires:
+        - GMAIL_CLIENT_ID
+        - GMAIL_CLIENT_SECRET
+        - GMAIL_REFRESH_TOKEN
+        """
+        if not all([self.gmail_client_id, self.gmail_client_secret, self.gmail_refresh_token]):
+            return {"status": "FAILED", "error": "Missing Gmail OAuth credentials"}
+
+        import base64
+
+        # 1. Refresh Access Token
+        token_url = "https://oauth2.googleapis.com/token"
+        token_data = {
+            "client_id": self.gmail_client_id,
+            "client_secret": self.gmail_client_secret,
+            "refresh_token": self.gmail_refresh_token,
+            "grant_type": "refresh_token",
+        }
+        res = requests.post(token_url, data=token_data)
+        if res.status_code != 200:
+            return {"status": "FAILED", "error": f"Token refresh failed: {res.text}"}
+        
+        access_token = res.json().get("access_token")
+
+        # 2. Construct MIME Message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = self.from_email
+        msg['To'] = ', '.join(to_emails)
+        if cc_emails:
+            msg['Cc'] = ', '.join(cc_emails)
+        msg.attach(MIMEText(html_body, 'html'))
+        
+        # Encode as URL-safe base64 string
+        raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode('utf-8')
+
+        # 3. Send Email
+        api_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        payload = {"raw": raw_message}
+        
+        response = requests.post(api_url, headers=headers, json=payload)
+        
+        if response.status_code == 200:
+            return {"status": "SENT", "backend": "gmail_api", "id": response.json().get("id")}
+        else:
+            return {"status": "FAILED", "error": f"Gmail API error: {response.text}"}
 
 
 class SlackProvider(AlertProvider):

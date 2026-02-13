@@ -1,280 +1,454 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
+            color: #1a1a2e;
+            margin: 0;
             padding: 0;
-            background-color: #f4f4f4;
+            background-color: #f0f2f5;
+            -webkit-font-smoothing: antialiased;
         }
-        .email-container {
-            background-color: #ffffff;
-            margin: 20px auto;
-            border-radius: 10px;
+
+        .wrapper {
+            max-width: 620px;
+            margin: 0 auto;
+            padding: 20px 16px;
+        }
+
+        .email-card {
+            background: #ffffff;
+            border-radius: 16px;
             overflow: hidden;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
         }
+
+        /* ---- Header ---- */
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 40px 30px;
+            padding: 36px 32px 28px;
             text-align: center;
         }
-        .header h1 {
-            margin: 0;
-            font-size: 26px;
-            font-weight: 600;
+
+        .header-critical {
+            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
         }
-        .alert-icon {
-            font-size: 60px;
-            margin-bottom: 15px;
+
+        .header-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+
+        .header-info {
+            background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+        }
+
+        .header-icon {
+            font-size: 44px;
+            margin-bottom: 12px;
             display: block;
         }
-        .severity-badge {
+
+        .header h1 {
+            margin: 0 0 6px 0;
+            font-size: 22px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.3px;
+        }
+
+        .header-subtitle {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 14px;
+            margin: 0;
+        }
+
+        .severity-pill {
             display: inline-block;
-            padding: 8px 20px;
-            border-radius: 25px;
-            font-size: 13px;
-            font-weight: bold;
-            margin-top: 12px;
-            letter-spacing: 0.5px;
+            padding: 5px 16px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 14px;
+            background: rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
-        .severity-critical {
-            background-color: #d32f2f;
-            color: white;
+
+        /* ---- Body ---- */
+        .body {
+            padding: 28px 32px;
         }
-        .severity-warning {
-            background-color: #f57c00;
-            color: white;
+
+        /* Quick-glance strip */
+        .quick-strip {
+            display: table;
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 24px;
+            background: #f8fafc;
+            border-radius: 10px;
+            overflow: hidden;
         }
-        .severity-info {
-            background-color: #1976d2;
-            color: white;
+
+        .quick-cell {
+            display: table-cell;
+            width: 33.33%;
+            padding: 16px 12px;
+            text-align: center;
+            border-right: 1px solid #e2e8f0;
         }
-        .content {
-            padding: 30px;
+
+        .quick-cell:last-child {
+            border-right: none;
         }
+
+        .quick-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+
+        .quick-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1e293b;
+            word-break: break-all;
+        }
+
+        /* Sections */
         .section {
-            background: #f9f9f9;
-            padding: 20px;
             margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #64748b;
+            margin: 0 0 10px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f1f5f9;
+        }
+
+        .description-text {
+            font-size: 15px;
+            color: #334155;
+            margin: 0;
+            line-height: 1.7;
+            padding: 14px 16px;
+            background: #f8fafc;
             border-radius: 8px;
-            border-left: 4px solid #667eea;
+            border-left: 3px solid #6366f1;
         }
-        .section h2 {
-            margin-top: 0;
-            font-size: 18px;
-            color: #667eea;
-            border-bottom: 2px solid #e0e0e0;
-            padding-bottom: 10px;
-            margin-bottom: 15px;
-        }
-        .info-table {
+
+        /* Data comparison */
+        .compare-grid {
+            display: table;
             width: 100%;
             border-collapse: collapse;
         }
-        .info-table tr {
-            border-bottom: 1px solid #e0e0e0;
+
+        .compare-col {
+            display: table-cell;
+            width: 50%;
+            padding: 0 6px;
+            vertical-align: top;
         }
-        .info-table tr:last-child {
+
+        .compare-col:first-child {
+            padding-left: 0;
+        }
+
+        .compare-col:last-child {
+            padding-right: 0;
+        }
+
+        .compare-header {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .compare-expected .compare-header {
+            color: #16a34a;
+        }
+
+        .compare-actual .compare-header {
+            color: #dc2626;
+        }
+
+        .compare-box {
+            background: #1e293b;
+            color: #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .compare-expected .compare-box {
+            border-top: 3px solid #16a34a;
+        }
+
+        .compare-actual .compare-box {
+            border-top: 3px solid #dc2626;
+        }
+
+        /* Impact banner */
+        .impact-banner {
+            display: table;
+            width: 100%;
+            background: #fef2f2;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .impact-icon-cell {
+            display: table-cell;
+            width: 56px;
+            vertical-align: middle;
+            text-align: center;
+            background: #fee2e2;
+        }
+
+        .impact-icon {
+            font-size: 24px;
+        }
+
+        .impact-text {
+            display: table-cell;
+            padding: 14px 16px;
+            vertical-align: middle;
+        }
+
+        .impact-text strong {
+            color: #991b1b;
+            font-size: 14px;
+        }
+
+        .impact-text p {
+            margin: 4px 0 0 0;
+            font-size: 13px;
+            color: #7f1d1d;
+        }
+
+        /* Recommendations */
+        .rec-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .rec-list li {
+            padding: 8px 12px 8px 32px;
+            font-size: 13px;
+            color: #475569;
+            position: relative;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .rec-list li:last-child {
             border-bottom: none;
         }
-        .info-table td {
-            padding: 12px 8px;
+
+        .rec-list li::before {
+            content: "→";
+            position: absolute;
+            left: 12px;
+            color: #6366f1;
+            font-weight: 700;
         }
-        .info-label {
-            font-weight: 600;
-            color: #666;
-            width: 40%;
-        }
-        .info-value {
-            color: #333;
-        }
-        .code-block {
-            background: #2d2d2d;
-            color: #f8f8f2;
-            border-radius: 6px;
-            padding: 15px;
-            font-family: 'Courier New', Consolas, monospace;
-            font-size: 13px;
-            overflow-x: auto;
-            margin: 10px 0;
-        }
-        .button-container {
+
+        /* CTA Buttons */
+        .cta-row {
             text-align: center;
-            margin: 25px 0;
+            margin: 28px 0 8px;
         }
-        .button {
+
+        .cta-btn {
             display: inline-block;
-            padding: 14px 32px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            margin: 8px;
+            padding: 12px 28px;
+            border-radius: 8px;
+            font-size: 14px;
             font-weight: 600;
-            transition: background 0.3s ease;
-        }
-        .button:hover {
-            background: #5568d3;
-        }
-        .button-secondary {
-            background: #764ba2;
-        }
-        .button-secondary:hover {
-            background: #6a4291;
-        }
-        .recommendations {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 6px;
-        }
-        .recommendations h3 {
-            margin-top: 0;
-            color: #856404;
-            font-size: 16px;
-        }
-        .recommendations ul {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-        .recommendations li {
-            margin: 8px 0;
-            color: #856404;
-        }
-        .impact-warning {
-            background: #ffebee;
-            border-left: 4px solid #d32f2f;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 6px;
-        }
-        .impact-warning h3 {
-            margin-top: 0;
-            color: #c62828;
-            font-size: 16px;
-        }
-        .footer {
-            background: #f4f4f4;
-            text-align: center;
-            padding: 25px;
-            color: #999;
-            font-size: 12px;
-        }
-        .footer a {
-            color: #667eea;
             text-decoration: none;
+            margin: 0 4px;
         }
-        .footer a:hover {
-            text-decoration: underline;
+
+        .cta-primary {
+            background: #6366f1;
+            color: #ffffff;
         }
-        .meta-info {
-            color: #bbb;
+
+        .cta-secondary {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        /* Footer */
+        .footer {
+            background: #f8fafc;
+            padding: 20px 32px;
+            text-align: center;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .footer p {
+            margin: 0 0 8px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .footer a {
+            color: #6366f1;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .footer-id {
             font-size: 11px;
-            margin-top: 15px;
+            color: #cbd5e1;
+            margin-top: 8px;
+            font-family: 'SF Mono', 'Consolas', monospace;
         }
     </style>
 </head>
+
 <body>
-    <div class="email-container">
-        <div class="header">
-            <span class="alert-icon">{{ severity_emoji }}</span>
-            <h1>Data Anomaly Detected</h1>
-            <span class="severity-badge severity-{{ severity|lower }}">{{ severity }}</span>
-        </div>
+    <div class="wrapper">
+        <div class="email-card">
 
-        <div class="content">
-            <!-- Summary Section -->
-            <div class="section">
-                <h2>📊 Anomaly Summary</h2>
-                <table class="info-table">
-                    <tr>
-                        <td class="info-label">Dataset:</td>
-                        <td class="info-value"><strong>{{ dataset_name }}</strong></td>
-                    </tr>
-                    <tr>
-                        <td class="info-label">Anomaly Type:</td>
-                        <td class="info-value">{{ anomaly_type }}</td>
-                    </tr>
-                    <tr>
-                        <td class="info-label">Detected At:</td>
-                        <td class="info-value">{{ detected_at }}</td>
-                    </tr>
-                    <tr>
-                        <td class="info-label">Deviation Score:</td>
-                        <td class="info-value"><strong>{{ deviation_score }}σ</strong> from mean</td>
-                    </tr>
-                </table>
+            <!-- ===== HEADER ===== -->
+            <div class="header header-{{ severity|lower }}">
+                <span class="header-icon">
+                    {% if severity|lower == 'critical' %}🚨{% elif severity|lower == 'warning' %}⚠️{% else %}ℹ️{% endif
+                    %}
+                </span>
+                <h1>{{ anomaly_type_display }}</h1>
+                <p class="header-subtitle">Anomaly detected in <strong>{{ dataset_name }}</strong></p>
+                <span class="severity-pill">{{ severity }}</span>
             </div>
 
-            <!-- Description -->
-            <div class="section">
-                <h2>📝 Description</h2>
-                <p style="margin: 0;">{{ description }}</p>
+            <!-- ===== BODY ===== -->
+            <div class="body">
+
+                <!-- Quick-glance strip -->
+                <div class="quick-strip">
+                    <div class="quick-cell">
+                        <div class="quick-label">Dataset</div>
+                        <div class="quick-value">{{ dataset_name }}</div>
+                    </div>
+                    <div class="quick-cell">
+                        <div class="quick-label">Type</div>
+                        <div class="quick-value">{{ anomaly_type_display }}</div>
+                    </div>
+                    <div class="quick-cell">
+                        <div class="quick-label">Detected</div>
+                        <div class="quick-value">{{ detected_at_display }}</div>
+                    </div>
+                </div>
+
+                <!-- What happened -->
+                <div class="section">
+                    <h3 class="section-title">What Happened</h3>
+                    <p class="description-text">{{ description }}</p>
+                </div>
+
+                <!-- Expected vs Actual -->
+                {% if expected_value and actual_value %}
+                <div class="section">
+                    <h3 class="section-title">Expected vs Actual</h3>
+                    <div class="compare-grid">
+                        <div class="compare-col compare-expected">
+                            <div class="compare-header">✓ Expected</div>
+                            <div class="compare-box">{{ expected_value }}</div>
+                        </div>
+                        <div class="compare-col compare-actual">
+                            <div class="compare-header">✗ Actual</div>
+                            <div class="compare-box">{{ actual_value }}</div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Impact Analysis -->
+                {% if downstream_count > 0 %}
+                <div class="impact-banner">
+                    <div class="impact-icon-cell">
+                        <span class="impact-icon">💥</span>
+                    </div>
+                    <div class="impact-text">
+                        <strong>{{ downstream_count }} Downstream Dataset{{ 's' if downstream_count > 1 else '' }} at
+                            Risk</strong>
+                        <p>This issue could propagate to dependent datasets. Review lineage to assess blast radius.</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Recommendations -->
+                <div class="section">
+                    <h3 class="section-title">Recommended Actions</h3>
+                    <ul class="rec-list">
+                        {% if 'schema' in anomaly_type|lower %}
+                        <li>Review the schema change and verify it was intentional</li>
+                        <li>Update downstream consumers if field types or names changed</li>
+                        <li>Check if data pipelines need migration scripts</li>
+                        {% elif 'row' in anomaly_type|lower or 'volume' in anomaly_type|lower %}
+                        <li>Check if upstream data sources are running as expected</li>
+                        <li>Verify ETL/ELT jobs completed without partial failures</li>
+                        <li>Compare row counts with source system totals</li>
+                        {% elif 'freshness' in anomaly_type|lower or 'sla' in anomaly_type|lower %}
+                        <li>Check if the pipeline job is stuck or failed</li>
+                        <li>Review scheduler logs for missed triggers</li>
+                        <li>Verify network connectivity to source systems</li>
+                        {% else %}
+                        <li>Investigate the data source for unexpected changes</li>
+                        <li>Review recent pipeline deployments or config changes</li>
+                        <li>Compare metrics with the last 7-day trend</li>
+                        {% endif %}
+                        <li>Check the lineage graph for downstream impact</li>
+                    </ul>
+                </div>
+
+                <!-- CTA -->
+                <div class="cta-row">
+                    <a href="{{ dashboard_url }}" class="cta-btn cta-primary">
+                        Open Dashboard
+                    </a>
+                    <a href="{{ lineage_url }}" class="cta-btn cta-secondary">
+                        View Lineage
+                    </a>
+                </div>
+
             </div>
 
-            <!-- Expected vs Actual -->
-            <div class="section">
-                <h2>🔍 Expected vs Actual Values</h2>
-                <p><strong>Expected:</strong></p>
-                <div class="code-block">{{ expected_value }}</div>
-                <p><strong>Actual:</strong></p>
-                <div class="code-block">{{ actual_value }}</div>
-            </div>
-
-            <!-- Actions -->
-            <div class="button-container">
-                <a href="{{ api_base_url }}/docs#/Anomalies" class="button">
-                    View Anomaly Details
-                </a>
-                <a href="{{ api_base_url }}/docs#/Lineage" class="button button-secondary">
-                    View Lineage Graph
-                </a>
-            </div>
-
-            <!-- Recommendations -->
-            <div class="recommendations">
-                <h3>🛠️ Recommended Actions</h3>
-                <ul>
-                    <li>Check upstream data sources for issues</li>
-                    <li>Review recent pipeline changes or deployments</li>
-                    <li>Verify data ingestion completed successfully</li>
-                    <li>Check execution logs for errors or warnings</li>
-                    <li>Compare metrics with historical baselines</li>
-                </ul>
-            </div>
-
-            <!-- Impact Analysis -->
-            {% if downstream_count > 0 %}
-            <div class="impact-warning">
-                <h3>⚠️ Impact Analysis</h3>
+            <!-- ===== FOOTER ===== -->
+            <div class="footer">
                 <p>
-                    <strong>{{ downstream_count }}</strong> downstream dataset(s) may be affected by this issue.
-                    Review the lineage graph to understand the full blast radius and notify dependent teams.
+                    Automated alert from <strong>Data Observability Platform</strong><br>
+                    <a href="{{ dashboard_url }}">Dashboard</a> · <a href="{{ dashboard_url }}/alerts">Alert Rules</a>
                 </p>
+                <div class="footer-id">ID: {{ anomaly_id }}</div>
             </div>
-            {% endif %}
-        </div>
 
-        <div class="footer">
-            <p>
-                This is an automated alert from the <strong>Data Observability Platform</strong><br>
-                <a href="{{ api_base_url }}/docs">View API Documentation</a> |
-                <a href="{{ api_base_url }}/alert-rules">Manage Alert Rules</a>
-            </p>
-            <div class="meta-info">
-                Anomaly ID: {{ anomaly_id }}<br>
-                Alert sent: {{ sent_at }}
-            </div>
         </div>
     </div>
 </body>
+
 </html>

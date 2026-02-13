@@ -55,6 +55,7 @@ class EmailProvider(AlertProvider):
         self.gmail_refresh_token = os.getenv('GMAIL_REFRESH_TOKEN')
         
         self.api_base_url = os.getenv('API_BASE_URL', 'http://localhost:8000')
+        self.dashboard_url = os.getenv('DASHBOARD_URL', 'http://localhost:8000')
         self.template_env = Environment(loader=FileSystemLoader('templates'))
 
     def send_alert(self, anomaly: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,6 +93,33 @@ class EmailProvider(AlertProvider):
         dataset = anomaly.get('dataset_name', 'Unknown')
         return f"[{severity}] Data Anomaly: {dataset}"
 
+    def _format_anomaly_type(self, anomaly_type: str) -> str:
+        """Convert raw anomaly type to a human-readable display name."""
+        display_map = {
+            'schema_change': 'Schema Change',
+            'row_count_anomaly': 'Row Count Anomaly',
+            'freshness_sla_breach': 'Freshness SLA Breach',
+            'volume_spike': 'Volume Spike',
+            'volume_drop': 'Volume Drop',
+            'null_rate_spike': 'Null Rate Spike',
+            'completeness_drop': 'Completeness Drop',
+            'data_drift': 'Data Drift',
+        }
+        return display_map.get(anomaly_type, anomaly_type.replace('_', ' ').title())
+
+    def _format_detected_at(self, detected_at) -> str:
+        """Format detected_at into a clean, readable string."""
+        try:
+            if isinstance(detected_at, str):
+                dt = datetime.fromisoformat(detected_at.replace('Z', '+00:00'))
+            elif isinstance(detected_at, datetime):
+                dt = detected_at
+            else:
+                return str(detected_at)
+            return dt.strftime('%b %d, %Y %I:%M %p')
+        except:
+            return str(detected_at)
+
     def _render_email_template(self, anomaly: Dict[str, Any]) -> str:
         template = self.template_env.get_template('anomaly_alert.html')
         
@@ -104,17 +132,23 @@ class EmailProvider(AlertProvider):
         except:
             pass
 
+        anomaly_type = anomaly.get('anomaly_type', 'Unknown')
+        detected_at = anomaly.get('detected_at', datetime.now().isoformat())
+        dataset_name = anomaly.get('dataset_name', 'Unknown')
+
         return template.render(
             severity=anomaly.get('severity', 'INFO'),
-            dataset_name=anomaly.get('dataset_name', 'Unknown'),
-            anomaly_type=anomaly.get('anomaly_type', 'Unknown'),
-            detected_at=str(anomaly.get('detected_at', datetime.now().isoformat())),
+            dataset_name=dataset_name,
+            anomaly_type=anomaly_type,
+            anomaly_type_display=self._format_anomaly_type(anomaly_type),
+            detected_at_display=self._format_detected_at(detected_at),
             description=anomaly.get('description', 'No description available'),
             expected_value=json.dumps(anomaly.get('expected_value', {}), indent=2),
             actual_value=json.dumps(anomaly.get('actual_value', {}), indent=2),
             anomaly_id=anomaly.get('id', 'unknown'),
             downstream_count=downstream_count,
-            api_base_url=self.api_base_url
+            dashboard_url=self.dashboard_url,
+            lineage_url=f"{self.dashboard_url}/lineage",
         )
 
     def _send_console(self, to_emails, subject, body):

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { Key, Copy, Trash2, Plus, Loader2, AlertCircle } from 'lucide-react';
+import { Key, Copy, Trash2, Plus, Loader2, AlertCircle, Terminal, BookOpen, ChevronRight } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import './ApiKeys.css';
 
@@ -16,6 +16,7 @@ function ApiKeys() {
   const [creating, setCreating] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [activeTab, setActiveTab] = useState('spark-submit');
 
   const { token } = useAuth();
   const toast = useToast();
@@ -247,16 +248,22 @@ function ApiKeys() {
               </div>
 
               <div className="form-group">
-                <label>Usage Example:</label>
+                <label>Quick Start:</label>
                 <div className="code-block">
                   <pre>{`spark-submit \\
+  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${createdKey.key} \\
   your-application.jar`}</pre>
                   <button
                     className="copy-code-btn"
                     onClick={() =>
                       copyToClipboard(
-                        `spark-submit \\\n  --conf spark.observability.api.key=${createdKey.key} \\\n  your-application.jar`,
+                        `spark-submit \\
+  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.observability.api.key=${createdKey.key} \\
+  your-application.jar`,
                         'example',
                         'Example code'
                       )
@@ -431,6 +438,174 @@ function ApiKeys() {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Integration Guide */}
+      <div className="integration-guide">
+        <div className="guide-header">
+          <div className="guide-header-left">
+            <BookOpen size={22} />
+            <div>
+              <h2>Integration Guide</h2>
+              <p>Add observability to your Spark jobs in 3 steps</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="guide-steps">
+          {/* Step 1 */}
+          <div className="guide-step">
+            <div className="step-number">1</div>
+            <div className="step-content">
+              <h3>Add the Package</h3>
+              <p>Choose your build tool and add the Data Observability listener.</p>
+
+              <div className="code-tabs">
+                <div className="tab-bar">
+                  <button
+                    className={`tab-btn ${activeTab === 'spark-submit' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('spark-submit')}
+                  >
+                    <Terminal size={14} />
+                    spark-submit
+                  </button>
+                  <button
+                    className={`tab-btn ${activeTab === 'sbt' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('sbt')}
+                  >
+                    SBT
+                  </button>
+                  <button
+                    className={`tab-btn ${activeTab === 'maven' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('maven')}
+                  >
+                    Maven
+                  </button>
+                </div>
+
+                {activeTab === 'spark-submit' && (
+                  <div className="code-block">
+                    <pre>{`spark-submit \\
+  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.observability.api.key=<YOUR_API_KEY> \\
+  your-application.jar`}</pre>
+                    <button
+                      className="copy-code-btn"
+                      onClick={() =>
+                        copyToClipboard(
+                          `spark-submit \\
+  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.observability.api.key=${keys.length > 0 ? keys[0].key_prefix + '...' : '<YOUR_API_KEY>'} \\
+  your-application.jar`,
+                          'guide-spark',
+                          'spark-submit command'
+                        )
+                      }
+                    >
+                      {copiedId === 'guide-spark' ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                )}
+
+                {activeTab === 'sbt' && (
+                  <div className="code-block">
+                    <pre>{`// build.sbt
+libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "2.13.0"`}</pre>
+                    <button
+                      className="copy-code-btn"
+                      onClick={() =>
+                        copyToClipboard(
+                          `libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "2.13.0"`,
+                          'guide-sbt',
+                          'SBT dependency'
+                        )
+                      }
+                    >
+                      {copiedId === 'guide-sbt' ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                )}
+
+                {activeTab === 'maven' && (
+                  <div className="code-block">
+                    <pre>{`<dependency>
+  <groupId>io.github.riju377</groupId>
+  <artifactId>data-observability-platform_2.12</artifactId>
+  <version>2.13.0</version>
+</dependency>`}</pre>
+                    <button
+                      className="copy-code-btn"
+                      onClick={() =>
+                        copyToClipboard(
+                          `<dependency>\n  <groupId>io.github.riju377</groupId>\n  <artifactId>data-observability-platform_2.12</artifactId>\n  <version>2.13.0</version>\n</dependency>`,
+                          'guide-maven',
+                          'Maven dependency'
+                        )
+                      }
+                    >
+                      {copiedId === 'guide-maven' ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2 */}
+          <div className="guide-step">
+            <div className="step-number">2</div>
+            <div className="step-content">
+              <h3>Configure the Listener</h3>
+              <p>Pass these Spark configuration flags when submitting your job:</p>
+              <div className="config-table">
+                <div className="config-row">
+                  <code className="config-key">spark.extraListeners</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">com.observability.listener.ObservabilityListener</code>
+                </div>
+                <div className="config-row">
+                  <code className="config-key">spark.observability.api.key</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">{keys.length > 0 ? keys[0].key_prefix + '...' : '<YOUR_API_KEY>'}</code>
+                </div>
+                <div className="config-row config-row-optional">
+                  <code className="config-key">spark.observability.api.url</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">Optional — defaults to production API</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 3 */}
+          <div className="guide-step">
+            <div className="step-number">3</div>
+            <div className="step-content">
+              <h3>Run &amp; Monitor</h3>
+              <p>Submit your Spark job as usual. The listener automatically captures:</p>
+              <div className="captures-grid">
+                <div className="capture-item">
+                  <span className="capture-icon">📊</span>
+                  <span>Dataset metrics &amp; row counts</span>
+                </div>
+                <div className="capture-item">
+                  <span className="capture-icon">🔗</span>
+                  <span>Table &amp; column lineage</span>
+                </div>
+                <div className="capture-item">
+                  <span className="capture-icon">📋</span>
+                  <span>Schema evolution tracking</span>
+                </div>
+                <div className="capture-item">
+                  <span className="capture-icon">🚨</span>
+                  <span>Anomaly detection &amp; alerts</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Info Footer */}

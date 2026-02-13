@@ -38,14 +38,17 @@ object ObservabilityApiClient extends LazyLogging {
   // Defaults
   val DEFAULT_CONNECT_TIMEOUT = 5000  // 5 seconds
   val DEFAULT_READ_TIMEOUT = 10000    // 10 seconds
+  val DEFAULT_API_URL = "https://data-observability-api.onrender.com"
   
   /**
-   * Create client from SparkConf
+   * Create client from SparkConf.
+   * URL defaults to the Render deployment if not explicitly set.
+   * Only the API key is required.
    * 
-   * @return Some(client) if API is configured, None otherwise
+   * @return Some(client) if API key is configured, None otherwise
    */
   def fromSparkConf(conf: SparkConf): Option[ObservabilityApiClient] = {
-    val apiUrl = conf.getOption(API_URL_KEY)
+    val apiUrl = conf.get(API_URL_KEY, DEFAULT_API_URL)
     val apiKey = conf.getOption(API_KEY_KEY)
     val enabled = conf.getBoolean(API_ENABLED_KEY, defaultValue = true)
     
@@ -54,23 +57,15 @@ object ObservabilityApiClient extends LazyLogging {
       return None
     }
     
-    (apiUrl, apiKey) match {
-      case (Some(url), Some(key)) =>
+    apiKey match {
+      case Some(key) =>
         val connectTimeout = conf.getInt(CONNECT_TIMEOUT_KEY, DEFAULT_CONNECT_TIMEOUT)
         val readTimeout = conf.getInt(READ_TIMEOUT_KEY, DEFAULT_READ_TIMEOUT)
-        logger.info(s"Observability API client initialized: $url")
-        Some(new ObservabilityApiClient(url, key, connectTimeout, readTimeout))
+        logger.info(s"Observability API client initialized: $apiUrl")
+        Some(new ObservabilityApiClient(apiUrl, key, connectTimeout, readTimeout))
         
-      case (Some(url), None) =>
-        logger.warn(s"API URL configured but no API key provided (set $API_KEY_KEY)")
-        None
-        
-      case (None, Some(_)) =>
-        logger.warn(s"API key provided but no API URL (set $API_URL_KEY)")
-        None
-        
-      case _ =>
-        logger.debug("Observability API not configured, will use direct DB access")
+      case None =>
+        logger.debug("Observability API key not configured, client disabled")
         None
     }
   }
@@ -79,7 +74,6 @@ object ObservabilityApiClient extends LazyLogging {
    * Check if API client is configured in SparkConf
    */
   def isConfigured(conf: SparkConf): Boolean = {
-    conf.getOption(API_URL_KEY).isDefined && 
     conf.getOption(API_KEY_KEY).isDefined &&
     conf.getBoolean(API_ENABLED_KEY, defaultValue = true)
   }

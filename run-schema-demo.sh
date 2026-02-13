@@ -19,7 +19,7 @@
 
 set -e
 
-PACKAGE="io.github.riju377:data-observability-platform_2.12:2.13.0"
+PACKAGE="io.github.riju377:data-observability-platform_2.12:1.3.0"
 
 echo "=============================================="
 echo " Schema Evolution Demo"

@@ -251,7 +251,7 @@ function ApiKeys() {
                 <label>Quick Start:</label>
                 <div className="code-block">
                   <pre>{`spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${createdKey.key} \\
   your-application.jar`}</pre>
@@ -260,7 +260,7 @@ function ApiKeys() {
                     onClick={() =>
                       copyToClipboard(
                         `spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${createdKey.key} \\
   your-application.jar`,
@@ -486,7 +486,7 @@ function ApiKeys() {
                 {activeTab === 'spark-submit' && (
                   <div className="code-block">
                     <pre>{`spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=<YOUR_API_KEY> \\
   your-application.jar`}</pre>
@@ -495,7 +495,7 @@ function ApiKeys() {
                       onClick={() =>
                         copyToClipboard(
                           `spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:2.13.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${keys.length > 0 ? keys[0].key_prefix + '...' : '<YOUR_API_KEY>'} \\
   your-application.jar`,
@@ -512,12 +512,12 @@ function ApiKeys() {
                 {activeTab === 'sbt' && (
                   <div className="code-block">
                     <pre>{`// build.sbt
-libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "2.13.0"`}</pre>
+libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "1.3.0"`}</pre>
                     <button
                       className="copy-code-btn"
                       onClick={() =>
                         copyToClipboard(
-                          `libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "2.13.0"`,
+                          `libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "1.3.0"`,
                           'guide-sbt',
                           'SBT dependency'
                         )
@@ -533,13 +533,13 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "2
                     <pre>{`<dependency>
   <groupId>io.github.riju377</groupId>
   <artifactId>data-observability-platform_2.12</artifactId>
-  <version>2.13.0</version>
+  <version>1.3.0</version>
 </dependency>`}</pre>
                     <button
                       className="copy-code-btn"
                       onClick={() =>
                         copyToClipboard(
-                          `<dependency>\n  <groupId>io.github.riju377</groupId>\n  <artifactId>data-observability-platform_2.12</artifactId>\n  <version>2.13.0</version>\n</dependency>`,
+                          `<dependency>\n  <groupId>io.github.riju377</groupId>\n  <artifactId>data-observability-platform_2.12</artifactId>\n  <version>1.3.0</version>\n</dependency>`,
                           'guide-maven',
                           'Maven dependency'
                         )

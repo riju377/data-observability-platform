@@ -179,7 +179,7 @@ Performs recursive depth-first traversal of Spark's `LogicalPlan` tree to extrac
 
 **Composite dataset naming:** Path-based datasets use a `bucket:logical_name` format (e.g., `mw-device-profile:high_value_brand_propensity`) to preserve the S3 bucket or root container as context. The helper `extractBucketFromPath()` extracts the bucket component from the URI. Catalog tables (those with a `catalogTable` entry) retain their simple names without a bucket prefix.
 
-**Path generalization:** Physical paths are generalized for location storage, replacing partition values with wildcards (e.g., `date=2024-01-01` becomes `date=*`).
+**Path generalization:** Physical paths are generalized for location storage, replacing partition values with wildcards (e.g., `date=2024-01-01` becomes `date=*`). This is now handled in the backend (`ingest.py`) to ensure consistent `partition_key` generation for anomaly scoping.
 
 #### ColumnLineageExtractor
 
@@ -440,14 +440,15 @@ This implements SCD Type 2 (Slowly Changing Dimension Type 2) for complete schem
 Statistical anomaly detection using 3-sigma process control on row counts.
 
 **Algorithm:**
-1. Fetch historical stats: `AVG(row_count)` and `STDDEV(row_count)` over the last 30 days from the `dataset_metrics` table
-2. Require at minimum 5 data points (cold start protection)
-3. Compute bounds: `upper = mean + 3 * stddev`, `lower = max(0, mean - 3 * stddev)`
-4. If `current > upper` -> `RowCountSpike` (severity: WARNING)
-5. If `current < lower` -> `RowCountDrop` (severity: CRITICAL)
-6. Additional check: if row count drops more than 50% from the mean, flag as CRITICAL even if within sigma bounds
+1. Determine Scope: Generalize the output path (e.g., `.../country=US/date=...` -> `.../country=US/date=*`) to create a `partition_key`.
+2. Fetch historical stats: `AVG(row_count)` and `STDDEV(row_count)` from `dataset_metrics` **scoped by this partition_key**. This ensures that "Small Partition" runs (e.g., India sales) are not compared against "Large Partition" runs (e.g., US sales).
+3. Require at minimum 5 data points (cold start protection)
+4. Compute bounds: `upper = mean + 3 * stddev`, `lower = max(0, mean - 3 * stddev)`
+5. If `current > upper` -> `RowCountSpike` or `VolumeSpike` (severity: WARNING)
+6. If `current < lower` -> `RowCountDrop` or `VolumeDrop` (severity: CRITICAL)
+7. Additional check: if row count drops more than 50% from the mean, flag as CRITICAL even if within sigma bounds
 
-**Important gotcha:** The SQL query `AVG(row_count)` **includes the current data point** (just inserted in step 3 of `process_metadata()`), which inflates both mean and standard deviation. This means detection requires approximately 15 normal data points before a 10x spike is reliably detected. See [Section 6](#6-anomaly-detection-mathematics) for the full mathematical analysis.
+**Important gotcha:** The SQL query `AVG(row_count)` **excludes the current job's data** (fixed in `anomaly_service.py`) to prevent the outlier from inflating the standard deviation and masking the anomaly. See [Section 6](#6-anomaly-detection-mathematics) for the full mathematical analysis.
 
 #### AlertService
 
@@ -693,6 +694,8 @@ CREATE TABLE dataset_metrics (
     file_count INTEGER,
     null_count JSONB,                    -- {"column_name": count, ...}
     distinct_count JSONB,                -- {"column_name": count, ...}
+    partition_key VARCHAR(1000),         -- Generalized output path signature
+    job_name VARCHAR(500),               -- Job name for scoping
     execution_time_ms BIGINT,
     records_processed BIGINT
 );

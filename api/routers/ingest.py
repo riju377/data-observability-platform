@@ -259,11 +259,59 @@ def infer_dataset_type(name: str, location: Optional[str] = None, declared_type:
     return "table"
 
 
+
 def infer_location_from_name(name: str) -> Optional[str]:
     """Extract location from name if it looks like a path."""
     if re.match(r'^[a-z]+://', name) or name.startswith("/"):
         return name
     return None
+
+
+def generalize_path(path: Optional[str]) -> str:
+    """
+    Generate a stable signature for a path by replacing variable parts (dates, IDs) with wildcards.
+    
+    Steps applied in order:
+    1. Hive Partitions: (date|dt|ts)=value -> (date|dt|ts)=*
+    2. Date Ranges: 20251003-20251231 -> *
+    3. ISO Dates: 2025-10-03 -> *
+    4. Compact Dates: /20251003/ or /202510/ -> /*/
+    5. Path Dates: /2025/10/03/ -> /*/*/*/
+    6. Time: 10:30:00 -> *
+    7. Temp/Attempts: _attempt_123 -> *
+    """
+    if not path:
+        return "UNKNOWN"
+        
+    s = path
+    
+    # 1. Hive Partitions (key=value)
+    # Matches /key=value/ or /key=value at end
+    s = re.sub(r'/(date|dt|year|month|day|hour|minute|timestamp|ts)=[^/]+', r'/\1=*', s, flags=re.IGNORECASE)
+    
+    # 2. Date Ranges (YYYYMMDD-YYYYMMDD)
+    s = re.sub(r'\d{8}-\d{8}', '*', s)
+    
+    # 3. ISO Dates (YYYY-MM-DD)
+    s = re.sub(r'\d{4}-\d{2}-\d{2}', '*', s)
+    
+    # 4. Compact Dates (YYYYMMDD or YYYYMM) - only if bounded
+    # /20251003/ -> /*/
+    s = re.sub(r'/(\d{6,8})/', r'/*/', s)
+    
+    # 5. Path Year/Month/Day (/2025/10/03/)
+    s = re.sub(r'/\d{4}/\d{2}/\d{2}/', r'/*/*/*/', s)
+    s = re.sub(r'/\d{4}/\d{2}/', r'/*/*/', s)
+    
+    # 6. Time (HH:MM:SS or HH-MM-SS)
+    s = re.sub(r'\d{2}[:\-]\d{2}[:\-]\d{2}', '*', s)
+    
+    # 7. Spark/Hadoop artifacts
+    s = re.sub(r'_attempt_\d+', '*', s)
+    s = re.sub(r'_temporary', '*', s)
+    
+    return s
+
 
 
 # ============================================
@@ -329,10 +377,22 @@ def process_metadata(payload: IngestPayload, org_id: str):
                 dataset_id = dataset_ids.get(dataset_name)
                 if dataset_id:
                     metrics = DatasetMetrics(**metrics_data) if isinstance(metrics_data, dict) else metrics_data
+                    
+                    # Generate partition key from location
+                    # Try to find the dataset object to get its location
+                    # Loop through unique_tables to find this dataset
+                    location = None
+                    for t in unique_tables:
+                        if t.name == dataset_name:
+                            location = t.location or infer_location_from_name(t.name)
+                            break
+                    
+                    partition_key = generalize_path(location)
+                    
                     cursor.execute("""
-                        INSERT INTO dataset_metrics (dataset_id, job_id, row_count, byte_size, organization_id, timestamp)
-                        VALUES (%s, %s, %s, %s, %s, NOW())
-                    """, (dataset_id, payload.job_id, metrics.row_count, metrics.byte_size, org_id))
+                        INSERT INTO dataset_metrics (dataset_id, job_id, job_name, row_count, byte_size, organization_id, timestamp, partition_key)
+                        VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
+                    """, (dataset_id, payload.job_id, payload.job_name, metrics.row_count, metrics.byte_size, org_id, partition_key))
             
             # 4. Insert anomalies
             for anomaly in payload.anomalies:
@@ -393,13 +453,58 @@ def process_metadata(payload: IngestPayload, org_id: str):
 
                 for dataset_name, metrics_data in payload.metrics.items():
                     metrics = DatasetMetrics(**metrics_data) if isinstance(metrics_data, dict) else metrics_data
-                    anomalies = AnomalyService.detect_anomalies(dataset_name, metrics, org_id)
+                    
+                    # Re-derive info for anomaly detection context
+                    location = None
+                    for t in unique_tables:
+                        if t.name == dataset_name:
+                            location = t.location or infer_location_from_name(t.name)
+                            break
+                    partition_key = generalize_path(location)
+                    # 4. Check for Anomalies (Scoped)
+                    anomalies = AnomalyService.detect_anomalies(
+                        dataset_name=dataset_name,
+                        metrics=metrics,
+                        org_id=org_id,
+                        job_name=payload.job_name,
+                        partition_key=partition_key,
+                        job_id=payload.job_id
+                    )
                     if anomalies:
                         all_anomalies.extend(anomalies)
 
+                # Insert backend-detected anomalies
                 if all_anomalies:
-                    AlertService.check_and_send_alerts(all_anomalies, org_id)
-                    print(f"Processed alerts for {len(all_anomalies)} anomalies")
+                    for anomaly in all_anomalies:
+                         # anomaly is a dict from detect_anomalies
+                         dataset_id = dataset_ids.get(anomaly['dataset_name'])
+                         if dataset_id:
+                             actual_json = json.dumps({"value": anomaly['current_value']})
+                             expected_json = json.dumps({"value": anomaly['expected_value']})
+                             try:
+                                 cursor.execute("""
+                                     INSERT INTO anomalies (
+                                         dataset_id, anomaly_type, severity,
+                                         actual_value, expected_value, deviation_score, description,
+                                         organization_id, detected_at, job_id
+                                     )
+                                     VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, NOW(), %s)
+                                 """, (
+                                     dataset_id, anomaly['anomaly_type'], anomaly['severity'],
+                                     actual_json, expected_json,
+                                     anomaly['deviation'], anomaly['message'], org_id, payload.job_id
+                                 ))
+                             except Exception as e:
+                                 print(f"Error inserting anomaly: {e}")
+                    conn.commit()
+
+                # Trigger Alerts
+                if all_anomalies:
+                    try:
+                        AlertService.check_and_send_alerts(all_anomalies, org_id)
+                    except Exception as e:
+                        print(f"Failed to send alerts: {e}")
+                print(f"Processed alerts for {len(all_anomalies)} anomalies")
 
             except Exception as e:
                 print(f"Error in anomaly detection/alerting: {e}")

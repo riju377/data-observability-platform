@@ -10,7 +10,8 @@
       "Bash(source:*)",
       "Bash(/bin/ls:*)",
       "Bash(/usr/bin/head:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(grep:*)"
     ]
   }
 }

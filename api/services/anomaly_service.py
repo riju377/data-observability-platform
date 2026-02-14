@@ -7,6 +7,7 @@ Analyzes dataset metrics to detect statistical anomalies.
 from typing import List, Optional, Tuple
 from datetime import datetime
 import math
+from decimal import Decimal
 
 from database import execute_query, execute_single, execute_insert
 from models import Anomaly, DatasetMetrics
@@ -21,7 +22,10 @@ class AnomalyService:
     def detect_anomalies(
         dataset_name: str, 
         metrics: DatasetMetrics, 
-        org_id: str
+        org_id: str,
+        job_name: Optional[str] = None,
+        partition_key: Optional[str] = None,
+        job_id: Optional[str] = None
     ) -> List[dict]:
         """
         Detect anomalies for a dataset based on current metrics and history.
@@ -30,98 +34,174 @@ class AnomalyService:
             dataset_name: Name of the dataset
             metrics: Current metrics
             org_id: Organization ID
+            job_name: Name of the job (optional but recommended for scoping)
+            partition_key: Partition signature (optional but recommended for scoping)
+            job_id: Current Job ID (to exclude from history)
             
         Returns:
             List of anomaly dictionaries
         """
         anomalies = []
         
-        # Only analyze if we have row count
-        if metrics.row_count is None:
-            return anomalies
-            
-        current_row_count = metrics.row_count
+        # Determine scoping strategy
+        # Ideally, we scope by (dataset_id, job_name, partition_key)
+        # If partition_key is missing, fall back to global or job-only
         
-        # Fetch historical stats (last 30 days)
-        stats = AnomalyService._get_historical_stats(dataset_name, org_id)
+        # Fetch historical stats
+        stats = AnomalyService._get_historical_stats(dataset_name, org_id, job_name, partition_key, exclude_job_id=job_id)
         
         if not stats or stats['count'] < 5:
-             # Need at least 5 data points for meaningful stats
+             # Need at least 5 data points (in the same scope) for meaningful stats
              return anomalies
              
-        mean = stats['mean']
-        std_dev = stats['stddev'] or 0.0
-        
-        # Threshold: 3 Standard Deviations (99.7% confidence)
-        threshold_sigma = 3.0
-        
-        upper_bound = mean + (threshold_sigma * std_dev)
-        lower_bound = max(0, mean - (threshold_sigma * std_dev))
-        
-        # 1. Check for Spikes
-        if current_row_count > upper_bound:
-            deviation_score = (current_row_count - mean) / mean if mean > 0 else 1.0
-            anomalies.append({
-                "dataset_name": dataset_name,
-                "anomaly_type": ROW_COUNT_SPIKE,
-                "severity": "WARNING",
-                "current_value": float(current_row_count),
-                "expected_value": float(mean),
-                "threshold": float(threshold_sigma),
-                "deviation": deviation_score,
-                "message": f"Row count {current_row_count} is {threshold_sigma}σ above mean {mean:.0f}"
-            })
+        # =========================================================
+        # Row Count Anomalies (Scoped)
+        # =========================================================
+        if metrics.row_count is not None:
+            mean = float(stats['avg_row_count'])
+            std_dev = float(stats['stddev_row_count'] or 0.0)
+            threshold_sigma = 3.0
             
-        # 2. Check for Drops
-        elif current_row_count < lower_bound:
-             deviation_score = (mean - current_row_count) / mean if mean > 0 else 1.0
-             anomalies.append({
-                "dataset_name": dataset_name,
-                "anomaly_type": ROW_COUNT_DROP,
-                "severity": "CRITICAL",  # Drops are usually more serious
-                "current_value": float(current_row_count),
-                "expected_value": float(mean),
-                "threshold": float(threshold_sigma),
-                "deviation": deviation_score,
-                "message": f"Row count {current_row_count} is {threshold_sigma}σ below mean {mean:.0f}"
-            })
+            upper_bound = mean + (threshold_sigma * std_dev)
+            lower_bound = max(0.0, mean - (threshold_sigma * std_dev))
             
-        # 3. Check for fixed percentage drop (>50%)
-        # Useful when stddev is tight but a large relative drop happens
-        if mean > 0:
-            percent_change = (current_row_count - mean) / mean
-            if percent_change < -0.5: 
-                # Avoid duplicate alert if already caught by sigma rule
-                if not any(a['anomaly_type'] == ROW_COUNT_DROP for a in anomalies):
-                    anomalies.append({
-                        "dataset_name": dataset_name,
-                        "anomaly_type": ROW_COUNT_DROP,
-                        "severity": "CRITICAL",
-                        "current_value": float(current_row_count),
-                        "expected_value": float(mean),
-                        "threshold": 0.5,
-                        "deviation": abs(percent_change),
-                        "message": f"Row count dropped by {abs(percent_change)*100:.1f}% (Mean: {mean:.0f})"
-                    })
+            current = metrics.row_count
+            
+            # Construct context string for message
+            context_str = ""
+            if partition_key and partition_key != "UNKNOWN":
+                context_str = f" in partition '{partition_key}'"
+            elif job_name:
+                context_str = f" for job '{job_name}'"
+
+            if current > upper_bound:
+                deviation = (current - mean) / mean if mean > 0 else 1.0
+                anomalies.append({
+                    "dataset_name": dataset_name,
+                    "anomaly_type": ROW_COUNT_SPIKE,
+                    "severity": "WARNING",
+                    "current_value": float(current),
+                    "expected_value": float(mean),
+                    "threshold": float(threshold_sigma),
+                    "deviation": deviation,
+                    "message": f"Row count spike{context_str}: {current} (Expected ~{mean:.0f}, >{threshold_sigma}σ)"
+                })
+            elif current < lower_bound:
+                 deviation = (mean - current) / mean if mean > 0 else 1.0
+                 anomalies.append({
+                    "dataset_name": dataset_name,
+                    "anomaly_type": ROW_COUNT_DROP,
+                    "severity": "CRITICAL",
+                    "current_value": float(current),
+                    "expected_value": float(mean),
+                    "threshold": float(threshold_sigma),
+                    "deviation": deviation,
+                    "message": f"Row count drop{context_str}: {current} (Expected ~{mean:.0f}, >{threshold_sigma}σ)"
+                })
+
+        # =========================================================
+        # Volume Anomalies (Scoped)
+        # =========================================================
+        if metrics.byte_size is not None:
+            mean_vol = float(stats['avg_byte_size'])
+            std_dev_vol = float(stats['stddev_byte_size'] or 0.0)
+            threshold_sigma_vol = 3.0
+            
+            # If stddev is very small (stable history), enforcing rigid sigma might cause false positives 
+            # on small fluctuations. Ensure min stddev or min deviation?
+            # For now, standard 3-sigma.
+            
+            upper_vol = mean_vol + (threshold_sigma_vol * std_dev_vol)
+            lower_vol = max(0.0, mean_vol - (threshold_sigma_vol * std_dev_vol))
+            
+            current_vol = metrics.byte_size
+            
+            # Helper to format bytes
+            def fmt_bytes(b):
+                for unit in ['B', 'KB', 'MB', 'GB']:
+                    if b < 1024: return f"{b:.1f}{unit}"
+                    b /= 1024
+                return f"{b:.1f}TB"
+
+            context_str = ""
+            if partition_key and partition_key != "UNKNOWN":
+                context_str = f" in partition '{partition_key}'"
+            elif job_name:
+                context_str = f" for job '{job_name}'"
+
+            # Check Spikes
+            if current_vol > upper_vol:
+                deviation = (current_vol - mean_vol) / mean_vol if mean_vol > 0 else 1.0
+                anomalies.append({
+                    "dataset_name": dataset_name,
+                    "anomaly_type": "VolumeSpike", # String constant not yet defined, using literal
+                    "severity": "WARNING",
+                    "current_value": float(current_vol),
+                    "expected_value": float(mean_vol),
+                    "threshold": float(threshold_sigma_vol),
+                    "deviation": deviation,
+                    "message": f"Volume spike{context_str}: {fmt_bytes(current_vol)} (Expected ~{fmt_bytes(mean_vol)})"
+                })
+            # Check Drops
+            elif current_vol < lower_vol:
+                 deviation = (mean_vol - current_vol) / mean_vol if mean_vol > 0 else 1.0
+                 anomalies.append({
+                    "dataset_name": dataset_name,
+                    "anomaly_type": "VolumeDrop",
+                    "severity": "CRITICAL",
+                    "current_value": float(current_vol),
+                    "expected_value": float(mean_vol),
+                    "threshold": float(threshold_sigma_vol),
+                    "deviation": deviation,
+                    "message": f"Volume drop{context_str}: {fmt_bytes(current_vol)} (Expected ~{fmt_bytes(mean_vol)})"
+                })
 
         return anomalies
 
     @staticmethod
-    def _get_historical_stats(dataset_name: str, org_id: str, days: int = 30) -> Optional[dict]:
-        """Fetch mean and stddev for row_count from DB"""
-        query = """
+    def _get_historical_stats(
+        dataset_name: str, 
+        org_id: str, 
+        job_name: Optional[str] = None, 
+        partition_key: Optional[str] = None,
+        exclude_job_id: Optional[str] = None,
+        days: int = 30
+    ) -> Optional[dict]:
+        """Fetch scoped stats (Row Count AND Byte Size) from DB"""
+        
+        # Build query dynamically based on available scope
+        where_clauses = [
+            "d.name = %s",
+            "d.organization_id = %s",
+            "dm.timestamp > NOW() - (INTERVAL '1 day' * %s)"
+        ]
+        params = [dataset_name, org_id, days]
+        
+        if exclude_job_id:
+            where_clauses.append("dm.job_id != %s")
+            params.append(exclude_job_id)
+
+        if partition_key and partition_key != "UNKNOWN":
+            where_clauses.append("dm.partition_key = %s")
+            params.append(partition_key)
+        elif job_name:
+            # Fallback to job-level scoping if no partition key
+            where_clauses.append("dm.job_name = %s")
+            params.append(job_name)
+            
+        query = f"""
             SELECT
-                AVG(row_count) as mean,
-                STDDEV(row_count) as stddev,
-                COUNT(*) as count
+                COUNT(*) as count,
+                AVG(row_count) as avg_row_count,
+                STDDEV(row_count) as stddev_row_count,
+                AVG(byte_size) as avg_byte_size,
+                STDDEV(byte_size) as stddev_byte_size
             FROM dataset_metrics dm
             JOIN datasets d ON dm.dataset_id = d.id
-            WHERE d.name = %s
-              AND d.organization_id = %s
-              AND dm.timestamp > NOW() - (INTERVAL '1 day' * %s)
-              AND dm.row_count IS NOT NULL
+            WHERE {" AND ".join(where_clauses)}
         """
-        result = execute_single(query, (dataset_name, org_id, days))
+        
+        result = execute_single(query, tuple(params))
 
         if result and result['count'] > 0:
             return result

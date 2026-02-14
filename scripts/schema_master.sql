@@ -130,12 +130,15 @@ CREATE TABLE IF NOT EXISTS dataset_metrics (
     file_count INTEGER,
     null_count JSONB,
     distinct_count JSONB,
+    partition_key VARCHAR(1000),         -- Generalized output path signature
+    job_name VARCHAR(500),               -- Job name for scoping
     execution_time_ms BIGINT,
     records_processed BIGINT
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_dataset_time ON dataset_metrics(dataset_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_job ON dataset_metrics(job_id);
+CREATE INDEX IF NOT EXISTS idx_metrics_scope ON dataset_metrics(dataset_id, job_name, partition_key);
 
 -- Anomalies
 CREATE TABLE IF NOT EXISTS anomalies (

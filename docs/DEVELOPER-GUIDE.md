@@ -142,9 +142,9 @@ No special PostgreSQL extensions are required beyond `uuid-ossp` and `pgcrypto`,
 | `database.py` | PostgreSQL connection pooling using psycopg. |
 | `models.py` | Pydantic request/response models. |
 | `alerting.py` | Alert dispatch with strategy pattern. Includes email, Slack, and Microsoft Teams providers. |
-| `services/anomaly_service.py` | 3-sigma anomaly detection. Requires at least 5 data points. |
+| `services/anomaly_service.py` | 3-sigma anomaly detection. Scoped by partition/job. Requires at least 5 data points. |
 | `services/alert_service.py` | Matches alert rules to detected anomalies and dispatches notifications. |
-| `routers/ingest.py` | Metadata ingestion endpoint (`POST /api/v1/ingest/metadata`). Processes incoming data in the background: upserts datasets, lineage edges, and metrics, then triggers anomaly detection. `infer_dataset_type()` checks location patterns (S3, HDFS, etc.) before table type, so path-based datasets get accurate storage types. |
+| `routers/ingest.py` | Metadata ingestion endpoint (`POST /api/v1/ingest/metadata`). Processes incoming data in the background: upserts datasets, lineage edges, and metrics, generalizes paths for partitioning, then triggers anomaly detection. `infer_dataset_type()` checks location patterns (S3, HDFS, etc.) before table type. |
 | `routers/auth.py` | Authentication endpoints: register, login, API key management. |
 | `.env` | Email alerting configuration (see Configuration Reference below). |
 

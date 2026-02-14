@@ -6,6 +6,19 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './Schema.css';
 
+// Parse composite dataset name "bucket:dataset_name" into parts
+function parseDatasetName(name) {
+  if (!name) return { bucket: null, displayName: name || '' };
+  const colonIdx = name.indexOf(':');
+  if (colonIdx > 0 && !name.includes('://')) {
+    return {
+      bucket: name.substring(0, colonIdx),
+      displayName: name.substring(colonIdx + 1),
+    };
+  }
+  return { bucket: null, displayName: name };
+}
+
 function Schema() {
   const [datasets, setDatasets] = useState([]);
   const [selectedDataset, setSelectedDataset] = useState('');
@@ -157,11 +170,14 @@ function Schema() {
                 loadSchemaHistory(e.target.value);
               }}
             >
-              {datasets.map((d) => (
-                <option key={d.id} value={d.name}>
-                  {d.name}
-                </option>
-              ))}
+              {datasets.map((d) => {
+                const { bucket, displayName } = parseDatasetName(d.name);
+                return (
+                  <option key={d.id} value={d.name}>
+                    {bucket ? `${displayName} (${bucket})` : displayName}
+                  </option>
+                );
+              })}
             </select>
             <ChevronDown size={18} className="select-icon" />
           </div>

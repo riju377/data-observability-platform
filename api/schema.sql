@@ -78,10 +78,10 @@ CREATE TABLE IF NOT EXISTS datasets (
     location VARCHAR(1000),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(name)
+    UNIQUE(organization_id, name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_datasets_name ON datasets(name);
+CREATE INDEX IF NOT EXISTS idx_datasets_org_name ON datasets(organization_id, name);
 CREATE INDEX IF NOT EXISTS idx_datasets_org ON datasets(organization_id);
 
 -- Lineage Edges
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS lineage_edges (
     job_id VARCHAR(200),
     job_name VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_dataset_id, target_dataset_id, job_id)
+    UNIQUE(source_dataset_id, target_dataset_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_lineage_source ON lineage_edges(source_dataset_id);
@@ -166,6 +166,7 @@ CREATE INDEX IF NOT EXISTS idx_anomalies_org ON anomalies(organization_id);
 -- Freshness SLA
 CREATE TABLE IF NOT EXISTS freshness_sla (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID REFERENCES organizations(id),
     dataset_id UUID NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
     sla_hours INTEGER NOT NULL,
     last_updated TIMESTAMP,
@@ -176,6 +177,7 @@ CREATE TABLE IF NOT EXISTS freshness_sla (
 
 CREATE INDEX IF NOT EXISTS idx_freshness_dataset ON freshness_sla(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_freshness_stale ON freshness_sla(is_stale, last_updated);
+CREATE INDEX IF NOT EXISTS idx_freshness_org ON freshness_sla(organization_id);
 
 -- =====================================================
 -- JOB EXECUTIONS & STAGE METRICS
@@ -184,6 +186,7 @@ CREATE INDEX IF NOT EXISTS idx_freshness_stale ON freshness_sla(is_stale, last_u
 -- Job Executions
 CREATE TABLE IF NOT EXISTS job_executions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID REFERENCES organizations(id),
     job_id VARCHAR(200) NOT NULL,
     job_name VARCHAR(500),
     application_id VARCHAR(200),
@@ -201,10 +204,12 @@ CREATE TABLE IF NOT EXISTS job_executions (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_id ON job_executions(job_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_started ON job_executions(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_org ON job_executions(organization_id);
 
 -- Stage Metrics
 CREATE TABLE IF NOT EXISTS stage_metrics (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID REFERENCES organizations(id),
     job_execution_id UUID REFERENCES job_executions(id) ON DELETE CASCADE,
     job_id VARCHAR(200) NOT NULL,
     application_id VARCHAR(200),
@@ -354,7 +359,7 @@ CREATE TABLE IF NOT EXISTS data_quality_rules (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     created_by VARCHAR(255),
-    UNIQUE(dataset_name, column_name, rule_type, name)
+    UNIQUE(organization_id, dataset_name, column_name, rule_type, name)
 );
 
 CREATE TABLE IF NOT EXISTS data_quality_results (
@@ -412,23 +417,21 @@ WHERE a.detected_at > NOW() - INTERVAL '7 days'
 ORDER BY a.detected_at DESC;
 
 -- =====================================================
--- FUNCTIONS (Recursive Lineage)
+-- FUNCTIONS (Recursive Lineage — org-scoped)
 -- =====================================================
 
--- (Ideally these should be updated to filter by organization_id context, but omitted for brevity)
-
-CREATE OR REPLACE FUNCTION get_downstream_datasets(dataset_name_param VARCHAR)
+CREATE OR REPLACE FUNCTION get_downstream_datasets(dataset_name_param VARCHAR, p_org_id UUID)
 RETURNS TABLE(dataset_name VARCHAR, depth INTEGER) AS $$
 WITH RECURSIVE downstream AS (
     SELECT dt.name as dataset_name, 1 as depth
     FROM datasets ds
     JOIN lineage_edges le ON ds.id = le.source_dataset_id
     JOIN datasets dt ON le.target_dataset_id = dt.id
-    WHERE ds.name = dataset_name_param
+    WHERE ds.name = dataset_name_param AND ds.organization_id = p_org_id
     UNION
     SELECT dt.name as dataset_name, d.depth + 1 as depth
     FROM downstream d
-    JOIN datasets ds ON d.dataset_name = ds.name
+    JOIN datasets ds ON d.dataset_name = ds.name AND ds.organization_id = p_org_id
     JOIN lineage_edges le ON ds.id = le.source_dataset_id
     JOIN datasets dt ON le.target_dataset_id = dt.id
     WHERE d.depth < 10
@@ -439,18 +442,18 @@ GROUP BY dataset_name
 ORDER BY depth, dataset_name;
 $$ LANGUAGE SQL;
 
-CREATE OR REPLACE FUNCTION get_upstream_datasets(dataset_name_param VARCHAR)
+CREATE OR REPLACE FUNCTION get_upstream_datasets(dataset_name_param VARCHAR, p_org_id UUID)
 RETURNS TABLE(dataset_name VARCHAR, depth INTEGER) AS $$
 WITH RECURSIVE upstream AS (
     SELECT ds.name as dataset_name, 1 as depth
     FROM datasets dt
     JOIN lineage_edges le ON dt.id = le.target_dataset_id
     JOIN datasets ds ON le.source_dataset_id = ds.id
-    WHERE dt.name = dataset_name_param
+    WHERE dt.name = dataset_name_param AND dt.organization_id = p_org_id
     UNION
     SELECT ds.name as dataset_name, u.depth + 1 as depth
     FROM upstream u
-    JOIN datasets dt ON u.dataset_name = dt.name
+    JOIN datasets dt ON u.dataset_name = dt.name AND dt.organization_id = p_org_id
     JOIN lineage_edges le ON dt.id = le.target_dataset_id
     JOIN datasets ds ON le.source_dataset_id = ds.id
     WHERE u.depth < 10
@@ -462,7 +465,7 @@ ORDER BY depth, dataset_name;
 $$ LANGUAGE SQL;
 
 -- Function to get all upstream column dependencies
-CREATE OR REPLACE FUNCTION get_upstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR)
+CREATE OR REPLACE FUNCTION get_upstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR, p_org_id UUID)
 RETURNS TABLE(dataset_name VARCHAR, column_name VARCHAR, transform_type VARCHAR, expression TEXT, depth INTEGER) AS $$
 WITH RECURSIVE upstream AS (
     -- Base case: find direct parents
@@ -476,6 +479,7 @@ WITH RECURSIVE upstream AS (
     JOIN datasets dt ON cle.target_dataset_id = dt.id
     JOIN datasets ds ON cle.source_dataset_id = ds.id
     WHERE dt.name = dataset_name_param AND cle.target_column = column_name_param
+      AND dt.organization_id = p_org_id
 
     UNION
 
@@ -487,7 +491,7 @@ WITH RECURSIVE upstream AS (
         cle.expression,
         u.depth + 1 as depth
     FROM upstream u
-    JOIN datasets dt ON u.dataset_name = dt.name
+    JOIN datasets dt ON u.dataset_name = dt.name AND dt.organization_id = p_org_id
     JOIN column_lineage_edges cle ON dt.id = cle.target_dataset_id AND u.column_name = cle.target_column
     JOIN datasets ds ON cle.source_dataset_id = ds.id
     WHERE u.depth < 10
@@ -499,7 +503,7 @@ ORDER BY depth, dataset_name;
 $$ LANGUAGE SQL;
 
 -- Function to get all downstream column dependencies
-CREATE OR REPLACE FUNCTION get_downstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR)
+CREATE OR REPLACE FUNCTION get_downstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR, p_org_id UUID)
 RETURNS TABLE(dataset_name VARCHAR, column_name VARCHAR, transform_type VARCHAR, expression TEXT, depth INTEGER) AS $$
 WITH RECURSIVE downstream AS (
     -- Base case: find direct children
@@ -513,6 +517,7 @@ WITH RECURSIVE downstream AS (
     JOIN datasets ds ON cle.source_dataset_id = ds.id
     JOIN datasets dt ON cle.target_dataset_id = dt.id
     WHERE ds.name = dataset_name_param AND cle.source_column = column_name_param
+      AND ds.organization_id = p_org_id
 
     UNION
 
@@ -524,7 +529,7 @@ WITH RECURSIVE downstream AS (
         cle.expression,
         d.depth + 1 as depth
     FROM downstream d
-    JOIN datasets ds ON d.dataset_name = ds.name
+    JOIN datasets ds ON d.dataset_name = ds.name AND ds.organization_id = p_org_id
     JOIN column_lineage_edges cle ON ds.id = cle.source_dataset_id AND d.column_name = cle.source_column
     JOIN datasets dt ON cle.target_dataset_id = dt.id
     WHERE d.depth < 10

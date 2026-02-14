@@ -477,8 +477,33 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
    * This gives us access to the logical plan, which we'll parse for lineage.
    */
   override def onSuccess(funcName: String, qe: QueryExecution, durationNs: Long): Unit = {
-    val inputTables = QueryPlanParser.extractInputTables(qe.logical)
+    val rawInputTables = QueryPlanParser.extractInputTables(qe.logical)
     val outputTables = QueryPlanParser.extractOutputTables(qe.logical)
+
+    // Filter out flush/self-reads: when Spark writes to a path and re-reads
+    // the same path, or reads from internal checkpoint/staging paths
+    val outputPaths = outputTables.flatMap(_.location).map(normalizePathForComparison).toSet
+    val outputNames = outputTables.map(_.name).toSet
+
+    val inputTables = rawInputTables.filterNot { input =>
+      val pathMatch = input.location.exists(loc =>
+        outputPaths.contains(normalizePathForComparison(loc)))
+      val nameMatch = outputNames.contains(input.name) && input.tableType == TableType.File
+      val isCheckpoint = input.location.exists { loc =>
+        loc.contains("/_temporary/") || loc.contains("/_checkpoint/") ||
+        loc.contains("/.spark-staging-") || loc.contains("/_spark_metadata/")
+      }
+
+      if (pathMatch || nameMatch) {
+        logger.debug(s"Skipping flush/self-read input: ${input.name}")
+        true
+      } else if (isCheckpoint) {
+        logger.debug(s"Skipping checkpoint/temporary input: ${input.name}")
+        true
+      } else {
+        false
+      }
+    }
 
     logger.info(s"onSuccess($funcName, ${durationNs / 1000000}ms): " +
       s"inputs=[${inputTables.map(_.name).mkString(",")}] -> outputs=[${outputTables.map(_.name).mkString(",")}]")
@@ -596,6 +621,11 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
       case e: Exception =>
         logger.error(s"Failed to publish metadata for job ${metadata.jobId}: ${e.getMessage}")
     }
+  }
+
+  /** Normalize a path for comparison (strip trailing slashes and wildcards) */
+  private def normalizePathForComparison(path: String): String = {
+    path.stripSuffix("/").replaceAll("/\\*$", "").replaceAll("\\*", "")
   }
 
   /**

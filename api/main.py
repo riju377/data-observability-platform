@@ -208,13 +208,13 @@ async def get_upstream_dependencies(
     """
     query = """
         SELECT dataset_name, depth
-        FROM get_upstream_datasets(%s)
+        FROM get_upstream_datasets(%s, %s)
         WHERE depth <= %s
         ORDER BY depth, dataset_name
     """
 
     try:
-        results = execute_query(query, (dataset_name, max_depth))
+        results = execute_query(query, (dataset_name, org.org_id, max_depth))
         if not results:
             # Check if dataset exists in this org
             dataset_check = execute_single(
@@ -262,13 +262,13 @@ async def get_downstream_dependencies(
     """
     query = """
         SELECT dataset_name, depth
-        FROM get_downstream_datasets(%s)
+        FROM get_downstream_datasets(%s, %s)
         WHERE depth <= %s
         ORDER BY depth, dataset_name
     """
 
     try:
-        results = execute_query(query, (dataset_name, max_depth))
+        results = execute_query(query, (dataset_name, org.org_id, max_depth))
         if not results:
             # Check if dataset exists in this org
             dataset_check = execute_single(
@@ -331,19 +331,19 @@ async def get_lineage_graph(dataset_name: str, org: OrgContext = Depends(get_cur
         upstream_query = """
             SELECT DISTINCT d.id::text, d.name, d.dataset_type, d.location,
                    d.created_at, d.updated_at
-            FROM get_upstream_datasets(%s) ud
+            FROM get_upstream_datasets(%s, %s) ud
             JOIN datasets d ON ud.dataset_name = d.name
         """
-        upstream = execute_query(upstream_query, (dataset_name,))
+        upstream = execute_query(upstream_query, (dataset_name, org.org_id))
 
         # Get downstream datasets
         downstream_query = """
             SELECT DISTINCT d.id::text, d.name, d.dataset_type, d.location,
                    d.created_at, d.updated_at
-            FROM get_downstream_datasets(%s) dd
+            FROM get_downstream_datasets(%s, %s) dd
             JOIN datasets d ON dd.dataset_name = d.name
         """
-        downstream = execute_query(downstream_query, (dataset_name,))
+        downstream = execute_query(downstream_query, (dataset_name, org.org_id))
 
         # Get all edges in the lineage graph
         # Collect all dataset names in the graph (selected + upstream + downstream)
@@ -411,10 +411,10 @@ async def get_column_upstream(
 
     **Use Case:** "Where does this column's data come from?"
     """
-    query = "SELECT * FROM get_upstream_columns(%s, %s)"
+    query = "SELECT * FROM get_upstream_columns(%s, %s, %s)"
 
     try:
-        results = execute_query(query, (dataset_name, column_name))
+        results = execute_query(query, (dataset_name, column_name, org.org_id))
         return [ColumnDependency(**r) for r in results if r['depth'] <= max_depth]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -440,10 +440,10 @@ async def get_column_downstream(
 
     **Use Case:** "What will break if I change this column?"
     """
-    query = "SELECT * FROM get_downstream_columns(%s, %s)"
+    query = "SELECT * FROM get_downstream_columns(%s, %s, %s)"
 
     try:
-        results = execute_query(query, (dataset_name, column_name))
+        results = execute_query(query, (dataset_name, column_name, org.org_id))
         return [ColumnDependency(**r) for r in results if r['depth'] <= max_depth]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -469,14 +469,14 @@ async def get_column_lineage_graph(
     try:
         # Get upstream
         upstream = execute_query(
-            "SELECT * FROM get_upstream_columns(%s, %s)",
-            (dataset_name, column_name)
+            "SELECT * FROM get_upstream_columns(%s, %s, %s)",
+            (dataset_name, column_name, org.org_id)
         )
 
         # Get downstream
         downstream = execute_query(
-            "SELECT * FROM get_downstream_columns(%s, %s)",
-            (dataset_name, column_name)
+            "SELECT * FROM get_downstream_columns(%s, %s, %s)",
+            (dataset_name, column_name, org.org_id)
         )
 
         # Collect all relevant dataset/column pairs for edge query
@@ -589,8 +589,8 @@ async def get_column_impact(
     try:
         # Get all downstream columns
         downstream = execute_query(
-            "SELECT * FROM get_downstream_columns(%s, %s)",
-            (dataset_name, column_name)
+            "SELECT * FROM get_downstream_columns(%s, %s, %s)",
+            (dataset_name, column_name, org.org_id)
         )
 
         # Filter by max_depth

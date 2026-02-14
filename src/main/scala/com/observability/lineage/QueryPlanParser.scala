@@ -598,29 +598,71 @@ object QueryPlanParser extends LazyLogging {
     None
   }
 
-  /**
-   * Extract a human-readable name from a file path with optional normalization
-   *
-   * Normalization handles partitioned datasets:
-   * - "s3://bucket/data/date=2024-01-01/country=US/" => "data" (normalized)
-   * - "s3://bucket/data/2024-01-01/US/" => "data" (if date/country patterns detected)
-   *
-   * @param path Full file path
-   * @param normalize Whether to normalize partitioned paths (default: true)
-   * @return Dataset name
-   */
+  // Extract a composite dataset name from a file path.
+  //
+  // For URI paths (s3://, gs://, hdfs://), returns "bucket:logical_name"
+  // where bucket is the authority/host and logical_name is the last
+  // non-partition segment.
+  //
+  // For local file paths (file:// or bare /), returns just the logical name.
+  //
+  // Examples:
+  //   s3://bucket/featuremart/brand_propensity/*/202601 => bucket:brand_propensity
+  //   s3://bucket/featuremart/output_v2/*/20251003-20251231 => bucket:output_v2
+  //   file:///data/local/output => output
   private def extractNameFromPath(path: String, normalize: Boolean = true): String = {
+    // Extract bucket/authority for URI schemes (None for file:// and local paths)
+    val bucketName = extractBucketFromPath(path)
+
     // Remove URI scheme (s3://, file://, etc.)
     val withoutScheme = path.replaceAll("^[a-z]+://", "")
 
-    if (normalize) {
-      // Try to detect and normalize partitioned paths
-      normalizePartitionedPath(withoutScheme)
+    // For URI paths with buckets, strip the bucket segment before normalization
+    // so the bucket cannot accidentally become the dataset name
+    val pathForNormalization = bucketName match {
+      case Some(bucket) =>
+        val afterBucket = withoutScheme.stripPrefix(bucket).stripPrefix("/")
+        if (afterBucket.isEmpty) withoutScheme else afterBucket
+      case None => withoutScheme
+    }
+
+    val logicalName = if (normalize) {
+      normalizePartitionedPath(pathForNormalization)
     } else {
-      // Original behavior: just get the last part
-      val parts = withoutScheme.split("/")
+      val parts = pathForNormalization.split("/")
       val lastName = parts.lastOption.getOrElse("unknown_dataset")
       lastName.replaceAll("\\.(parquet|csv|json|orc|avro)$", "")
+    }
+
+    // Compose: "bucket:name" for URI paths, just "name" for local
+    bucketName match {
+      case Some(bucket) => s"$bucket:$logicalName"
+      case None => logicalName
+    }
+  }
+
+  /**
+   * Extract bucket/authority from a URI path.
+   *
+   * Returns None for local file paths (file:// scheme or bare paths).
+   *
+   * Examples:
+   *   s3://mw-device-profile/featuremart/... -> Some("mw-device-profile")
+   *   gs://my-bucket/data/... -> Some("my-bucket")
+   *   hdfs://namenode:8020/data/... -> Some("namenode:8020")
+   *   file:///data/... -> None
+   *   /data/local/... -> None
+   */
+  private def extractBucketFromPath(path: String): Option[String] = {
+    val uriSchemePattern = "^([a-z][a-z0-9+.-]*)://([^/]+)".r
+    uriSchemePattern.findFirstMatchIn(path) match {
+      case Some(m) =>
+        val scheme = m.group(1)
+        val authority = m.group(2)
+        // Skip file scheme (local filesystem, no meaningful bucket)
+        if (scheme == "file") None
+        else Some(authority)
+      case None => None
     }
   }
 
@@ -651,14 +693,17 @@ object QueryPlanParser extends LazyLogging {
       // Key=Value patterns (keep key, wildcard value)
       "^(date|year|month|day|hour|dt|partition_date)=.+".r -> "$1=*",
       "^(country|region|zone|geo|location|market)=.+".r -> "$1=*",
-      
+
       // Value-only patterns (full wildcard)
       "^\\d{4}-\\d{2}-\\d{2}$".r -> "*",           // 2024-01-01
       "^\\d{8}$".r -> "*",                         // 20240101
+      "^\\d{6}$".r -> "*",                         // 202601 (YYYYMM)
+      "^\\d{8}-\\d{8}$".r -> "*",                  // 20251003-20251231 (date range)
       "^\\d{4}$".r -> "*",                         // 2024 (Year)
       "^(0[1-9]|1[0-2])$".r -> "*",                // 01-12 (Month)
       "^(0[1-9]|[12][0-9]|3[01])$".r -> "*",       // 01-31 (Day)
-      "^[A-Z]{2}$".r -> "*",                       // US, UK (Country Code)
+      "^[A-Z]{2}$".r -> "*",                       // US, UK (uppercase country code)
+      "^[a-z]{2}$".r -> "*",                       // th, us (lowercase country code)
       "^[a-z]{2}-[a-z]+-\\d+$".r -> "*",           // us-east-1 (Region)
       "^(staging|prod|dev|test)$".r -> "*"         // Environment
     )
@@ -711,10 +756,13 @@ object QueryPlanParser extends LazyLogging {
       "^(country|region|zone|geo|location|market)=.+".r,            // Hive-style geo partitions
       "^\\d{4}-\\d{2}-\\d{2}$".r,                                   // ISO date: 2024-01-01
       "^\\d{8}$".r,                                                 // Compact date: 20240101
+      "^\\d{6}$".r,                                                 // YYYYMM: 202601
+      "^\\d{8}-\\d{8}$".r,                                          // Date range: 20251003-20251231
       "^\\d{4}$".r,                                                 // Year: 2024
       "^(0[1-9]|1[0-2])$".r,                                        // Month: 01-12
       "^(0[1-9]|[12][0-9]|3[01])$".r,                               // Day: 01-31
-      "^[A-Z]{2}$".r,                                               // 2-letter country code: US, UK
+      "^[A-Z]{2}$".r,                                               // 2-letter uppercase country code: US, UK
+      "^[a-z]{2}$".r,                                               // 2-letter lowercase country code: th, us
       "^[a-z]{2}-[a-z]+-\\d+$".r,                                   // AWS region: us-east-1
       "^(staging|prod|dev|test)$".r                                 // Environment
     )

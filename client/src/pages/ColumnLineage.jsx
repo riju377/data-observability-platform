@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import ReactFlow, { Background, Controls, MiniMap, MarkerType } from 'reactflow';
+import ReactFlow, { Background, Controls, MiniMap, MarkerType, getBezierPath, EdgeLabelRenderer } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { getDatasets, getDatasetColumns, getColumnLineageGraph, getColumnImpact } from '../services/api';
-import { Network, ChevronDown, Loader2, Database, Code, AlertTriangle, Zap, Target, Copy, Check } from 'lucide-react';
+import { Network, ChevronDown, Loader2, Database, Code, AlertTriangle, Zap, Target, Copy, Check, Info } from 'lucide-react';
+import { getLayoutedElements } from '../utils/layoutGraph';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './ColumnLineage.css';
@@ -22,6 +23,152 @@ const CRITICALITY_COLORS = {
   HIGH: '#f44336',
   CRITICAL: '#9c27b0',
 };
+
+// Custom edge with hover tooltip for expression
+function TooltipEdge({
+  id, sourceX, sourceY, targetX, targetY,
+  sourcePosition, targetPosition, style, markerEnd, data, label,
+  labelStyle, labelBgStyle, labelBgPadding,
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX, sourceY, targetX, targetY,
+    sourcePosition, targetPosition,
+  });
+
+  const transformType = data?.transformType || 'UNKNOWN';
+  const expression = data?.expression;
+  const edgeColor = TRANSFORM_COLORS[transformType] || '#667eea';
+
+  const handleCopy = () => {
+    if (expression) {
+      navigator.clipboard.writeText(expression);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <>
+      {/* Visible edge */}
+      <path
+        id={id}
+        d={edgePath}
+        fill="none"
+        style={style}
+        markerEnd={markerEnd}
+      />
+      {/* Interactive label with tooltip on hover */}
+      <EdgeLabelRenderer>
+        <div
+          className="edge-label-container"
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            pointerEvents: 'all',
+            cursor: 'help',
+            zIndex: 9999,
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          {/* Badge with copy overlay on hover */}
+          <div
+            className="edge-label-badge"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (expression) handleCopy();
+            }}
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              letterSpacing: '0.3px',
+              color: '#fff',
+              background: copied ? '#4ade80' : edgeColor,
+              border: `1.5px solid ${copied ? '#4ade80' : edgeColor}`,
+              borderRadius: '5px',
+              padding: '3px 8px',
+              transition: 'all 0.2s ease',
+              boxShadow: hovered ? `0 2px 8px ${edgeColor}60` : `0 1px 4px ${edgeColor}30`,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: expression ? 'pointer' : 'help',
+              position: 'relative',
+            }}
+          >
+            {copied ? (
+              <>
+                <Check size={10} color="#fff" />
+                <span style={{ color: '#fff' }}>Copied!</span>
+              </>
+            ) : (
+              <>
+                {transformType}
+                {hovered && expression ? (
+                  <Copy size={10} style={{ color: '#fff', opacity: 0.9 }} />
+                ) : (
+                  <Info size={10} style={{ color: '#1a1a2e', opacity: 1 }} />
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Tooltip on hover */}
+          {hovered && (
+            <div
+              className="edge-tooltip"
+              style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                marginBottom: '12px',
+                pointerEvents: 'all',
+              }}
+            >
+              <div className="edge-tooltip-header">
+                <span
+                  className="edge-tooltip-badge"
+                  style={{ background: edgeColor }}
+                >
+                  {transformType}
+                </span>
+              </div>
+              {expression ? (
+                <div className="edge-tooltip-expression">
+                  <code>{expression}</code>
+                </div>
+              ) : transformType === 'DIRECT' ? (
+                <div className="edge-tooltip-description">
+                  Direct column mapping (no transformation)
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </EdgeLabelRenderer>
+    </>
+  );
+}
+
+const edgeTypes = { tooltipEdge: TooltipEdge };
+
+// Parse composite dataset name "bucket:dataset_name" into parts
+function parseDatasetName(name) {
+  if (!name) return { bucket: null, displayName: name || '' };
+  const colonIdx = name.indexOf(':');
+  if (colonIdx > 0 && !name.includes('://')) {
+    return {
+      bucket: name.substring(0, colonIdx),
+      displayName: name.substring(colonIdx + 1),
+    };
+  }
+  return { bucket: null, displayName: name };
+}
 
 function ColumnLineage() {
   const [datasets, setDatasets] = useState([]);
@@ -62,18 +209,14 @@ function ColumnLineage() {
       const res = await getDatasetColumns(datasetName);
       const edges = res.data || [];
 
-      // Extract unique columns for this dataset from the edges
-      // Columns where this dataset is the target (has upstream lineage)
       const targetColumns = edges
         .filter(e => e.target_dataset_name === datasetName)
         .map(e => e.target_column);
 
-      // Columns where this dataset is the source (has downstream lineage)
       const sourceColumns = edges
         .filter(e => e.source_dataset_name === datasetName)
         .map(e => e.source_column);
 
-      // Combine and deduplicate
       const uniqueColumns = [...new Set([...targetColumns, ...sourceColumns])];
       const columnList = uniqueColumns.map(col => ({ column_name: col }));
 
@@ -127,7 +270,6 @@ function ColumnLineage() {
     setShowImpact(!showImpact);
   };
 
-  // Copy to clipboard handler
   const handleCopyPath = useCallback((path, event) => {
     event.stopPropagation();
     navigator.clipboard.writeText(path).then(() => {
@@ -154,18 +296,84 @@ function ColumnLineage() {
       edges: lineageEdges = []
     } = lineageData;
 
-    // Create a unique key for each column (dataset.column)
     const nodeMap = new Map();
-
-    // Position constants - increased to prevent overlapping
     const nodeWidth = 240;
-    const horizontalGap = 400;
-    const verticalGap = 140;
-    const centerX = 600;
-    const centerY = 350;
+    const nodeHeight = 120;
 
-    // Helper: get dataset info from the lookup map
     const getDatasetInfo = (name) => datasetMap.get(name) || {};
+
+    // Helper: build column node label with bucket badge
+    const buildColumnNodeLabel = (datasetName, columnName, info, isSelected = false) => {
+      const { bucket, displayName } = parseDatasetName(datasetName);
+      return (
+        <div className={`column-node ${isSelected ? 'selected-node' : ''}`}>
+          <div className="node-dataset-row">
+            {info.dataset_type && (
+              <span className="node-type-badge">{info.dataset_type}</span>
+            )}
+            {bucket && (
+              <span className="node-bucket-badge" title={bucket}>{bucket}</span>
+            )}
+            <div className="node-dataset-wrapper">
+              <div className="node-dataset" data-tooltip={displayName}>
+                <span className="node-text-inner">{displayName}</span>
+              </div>
+              <div
+                className="copy-path-btn"
+                role="button"
+                tabIndex={0}
+                onClick={(e) => handleCopyPath(displayName, e)}
+                title="Copy name"
+              >
+                {copiedPath === displayName ? (
+                  <Check size={12} />
+                ) : (
+                  <Copy size={12} />
+                )}
+              </div>
+            </div>
+          </div>
+          {info.location && (
+            <div className="node-location-wrapper">
+              <div className="node-location" data-tooltip={info.location}>
+                <span className="node-text-inner">{info.location}</span>
+              </div>
+              <div
+                className="copy-path-btn"
+                role="button"
+                tabIndex={0}
+                onClick={(e) => handleCopyPath(info.location, e)}
+                title="Copy full path"
+              >
+                {copiedPath === info.location ? (
+                  <Check size={12} />
+                ) : (
+                  <Copy size={12} />
+                )}
+              </div>
+            </div>
+          )}
+          <div className="node-column-wrapper">
+            <div className="node-column" data-tooltip={columnName}>
+              <span className="node-text-inner">{columnName}</span>
+            </div>
+            <div
+              className="copy-path-btn"
+              role="button"
+              tabIndex={0}
+              onClick={(e) => handleCopyPath(columnName, e)}
+              title="Copy name"
+            >
+              {copiedPath === columnName ? (
+                <Check size={12} />
+              ) : (
+                <Copy size={12} />
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
 
     // Selected column node
     const selectedKey = `${dataset_name}.${column_name}`;
@@ -173,35 +381,9 @@ function ColumnLineage() {
     nodeMap.set(selectedKey, {
       id: selectedKey,
       data: {
-        label: (
-          <div className="column-node selected-node">
-            <div className="node-dataset-row">
-              {selectedInfo.dataset_type && (
-                <span className="node-type-badge">{selectedInfo.dataset_type}</span>
-              )}
-              <span className="node-dataset">{dataset_name}</span>
-            </div>
-            {selectedInfo.location && (
-              <div className="node-location-wrapper">
-                <div className="node-location" title={selectedInfo.location}>{selectedInfo.location}</div>
-                <button
-                  className="copy-path-btn"
-                  onClick={(e) => handleCopyPath(selectedInfo.location, e)}
-                  title="Copy full path"
-                >
-                  {copiedPath === selectedInfo.location ? (
-                    <Check size={12} />
-                  ) : (
-                    <Copy size={12} />
-                  )}
-                </button>
-              </div>
-            )}
-            <div className="node-column">{column_name}</div>
-          </div>
-        ),
+        label: buildColumnNodeLabel(dataset_name, column_name, selectedInfo, true),
       },
-      position: { x: centerX, y: centerY },
+      position: { x: 0, y: 0 },
       style: {
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         color: 'white',
@@ -213,195 +395,81 @@ function ColumnLineage() {
       },
     });
 
-    // Group upstream by depth
-    const upstreamByDepth = new Map();
+    // Upstream nodes
     upstream.forEach((col) => {
-      if (!upstreamByDepth.has(col.depth)) {
-        upstreamByDepth.set(col.depth, []);
-      }
-      upstreamByDepth.get(col.depth).push(col);
+      const key = `${col.dataset_name}.${col.column_name}`;
+      const transformColor = TRANSFORM_COLORS[col.transform_type] || '#4caf50';
+      const colInfo = getDatasetInfo(col.dataset_name);
+      nodeMap.set(key, {
+        id: key,
+        data: {
+          label: buildColumnNodeLabel(col.dataset_name, col.column_name, colInfo),
+        },
+        position: { x: 0, y: 0 },
+        style: {
+          background: '#ffffff',
+          color: '#333',
+          padding: '0',
+          borderRadius: '8px',
+          border: `2px solid ${transformColor}`,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          width: `${nodeWidth}px`,
+        },
+      });
     });
 
-    // Group downstream by depth
-    const downstreamByDepth = new Map();
+    // Downstream nodes
     downstream.forEach((col) => {
-      if (!downstreamByDepth.has(col.depth)) {
-        downstreamByDepth.set(col.depth, []);
-      }
-      downstreamByDepth.get(col.depth).push(col);
-    });
-
-    // Add upstream nodes
-    upstreamByDepth.forEach((cols, depth) => {
-      const xPos = centerX - depth * horizontalGap;
-      const totalHeight = (cols.length - 1) * verticalGap;
-      const startY = centerY - totalHeight / 2;
-
-      cols.forEach((col, idx) => {
-        const key = `${col.dataset_name}.${col.column_name}`;
-        const transformColor = TRANSFORM_COLORS[col.transform_type] || '#4caf50';
-        const colInfo = getDatasetInfo(col.dataset_name);
-        nodeMap.set(key, {
-          id: key,
-          data: {
-            label: (
-              <div className="column-node">
-                <div className="node-dataset-row">
-                  {colInfo.dataset_type && (
-                    <span className="node-type-badge">{colInfo.dataset_type}</span>
-                  )}
-                  <span className="node-dataset">{col.dataset_name}</span>
-                </div>
-                {colInfo.location && (
-                  <div className="node-location-wrapper">
-                    <div className="node-location" title={colInfo.location}>{colInfo.location}</div>
-                    <button
-                      className="copy-path-btn"
-                      onClick={(e) => handleCopyPath(colInfo.location, e)}
-                      title="Copy full path"
-                    >
-                      {copiedPath === colInfo.location ? (
-                        <Check size={12} />
-                      ) : (
-                        <Copy size={12} />
-                      )}
-                    </button>
-                  </div>
-                )}
-                <div className="node-column">{col.column_name}</div>
-                {col.transform_type && (
-                  <div className="node-transform" style={{ background: transformColor }}>
-                    {col.transform_type}
-                  </div>
-                )}
-              </div>
-            ),
-          },
-          position: { x: xPos, y: startY + idx * verticalGap },
-          style: {
-            background: '#ffffff',
-            color: '#333',
-            padding: '0',
-            borderRadius: '8px',
-            border: `2px solid ${transformColor}`,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            width: `${nodeWidth}px`,
-          },
-        });
+      const key = `${col.dataset_name}.${col.column_name}`;
+      const transformColor = TRANSFORM_COLORS[col.transform_type] || '#ff9800';
+      const colInfo = getDatasetInfo(col.dataset_name);
+      nodeMap.set(key, {
+        id: key,
+        data: {
+          label: buildColumnNodeLabel(col.dataset_name, col.column_name, colInfo),
+        },
+        position: { x: 0, y: 0 },
+        style: {
+          background: '#ffffff',
+          color: '#333',
+          padding: '0',
+          borderRadius: '8px',
+          border: `2px solid ${transformColor}`,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          width: `${nodeWidth}px`,
+        },
       });
     });
 
-    // Add downstream nodes
-    downstreamByDepth.forEach((cols, depth) => {
-      const xPos = centerX + depth * horizontalGap;
-      const totalHeight = (cols.length - 1) * verticalGap;
-      const startY = centerY - totalHeight / 2;
-
-      cols.forEach((col, idx) => {
-        const key = `${col.dataset_name}.${col.column_name}`;
-        const transformColor = TRANSFORM_COLORS[col.transform_type] || '#ff9800';
-        const colInfo = getDatasetInfo(col.dataset_name);
-        nodeMap.set(key, {
-          id: key,
-          data: {
-            label: (
-              <div className="column-node">
-                <div className="node-dataset-row">
-                  {colInfo.dataset_type && (
-                    <span className="node-type-badge">{colInfo.dataset_type}</span>
-                  )}
-                  <span className="node-dataset">{col.dataset_name}</span>
-                </div>
-                {colInfo.location && (
-                  <div className="node-location-wrapper">
-                    <div className="node-location" title={colInfo.location}>{colInfo.location}</div>
-                    <button
-                      className="copy-path-btn"
-                      onClick={(e) => handleCopyPath(colInfo.location, e)}
-                      title="Copy full path"
-                    >
-                      {copiedPath === colInfo.location ? (
-                        <Check size={12} />
-                      ) : (
-                        <Copy size={12} />
-                      )}
-                    </button>
-                  </div>
-                )}
-                <div className="node-column">{col.column_name}</div>
-                {col.transform_type && (
-                  <div className="node-transform" style={{ background: transformColor }}>
-                    {col.transform_type}
-                  </div>
-                )}
-              </div>
-            ),
-          },
-          position: { x: xPos, y: startY + idx * verticalGap },
-          style: {
-            background: '#ffffff',
-            color: '#333',
-            padding: '0',
-            borderRadius: '8px',
-            border: `2px solid ${transformColor}`,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            width: `${nodeWidth}px`,
-          },
-        });
-      });
-    });
-
-    // Create edges with improved visibility and smart labeling
+    // Create edges with bezier type
     const flowEdges = lineageEdges.map((e) => {
       const sourceKey = `${e.source_dataset_name}.${e.source_column}`;
       const targetKey = `${e.target_dataset_name}.${e.target_column}`;
       const edgeColor = TRANSFORM_COLORS[e.transform_type] || '#667eea';
 
-      // Smart label logic: Show transform type for all edges
-      // For DIRECT: show subtle indicator
-      // For others: show transform type name
       const transformLabel = e.transform_type || 'UNKNOWN';
-      const isDirect = transformLabel === 'DIRECT';
+      // Always show label for better UX (hover target)
+      const labelText = transformLabel;
 
-      // Create display label with icon/symbol
-      const labelText = isDirect ? '→' : transformLabel;
 
       return {
         id: e.id,
         source: sourceKey,
         target: targetKey,
-        type: 'smoothstep',  // Better routing around nodes
+        type: 'tooltipEdge',
+        label: labelText,
         animated: true,
         style: {
           stroke: edgeColor,
-          strokeWidth: 3,    // Thicker for better visibility
+          strokeWidth: 3,
           opacity: 0.9,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: edgeColor,
-          width: 22,         // Larger arrowhead
+          width: 22,
           height: 22,
         },
-        // Always show label (different styles for DIRECT vs others)
-        label: labelText,
-        labelStyle: {
-          fontSize: isDirect ? 14 : 10,  // Larger for direct arrow symbol
-          fill: isDirect ? edgeColor : '#1a1a2e',
-          fontWeight: isDirect ? '400' : '700',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-          letterSpacing: isDirect ? '0' : '0.3px',
-        },
-        labelBgStyle: {
-          fill: isDirect ? 'transparent' : '#ffffff',
-          fillOpacity: isDirect ? 0 : 0.95,
-          rx: 5,
-          ry: 5,
-          stroke: isDirect ? 'transparent' : edgeColor,
-          strokeWidth: isDirect ? 0 : 1.5,
-        },
-        labelBgPadding: isDirect ? [0, 0] : [6, 10],
-        // Store expression in data for tooltip/hover display
         data: {
           expression: e.expression,
           transformType: e.transform_type,
@@ -409,8 +477,23 @@ function ColumnLineage() {
       };
     });
 
-    return { nodes: Array.from(nodeMap.values()), edges: flowEdges };
-  }, [lineageData, datasetMap]);
+    const rawNodes = Array.from(nodeMap.values());
+
+    // Apply dagre layout
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+      rawNodes,
+      flowEdges,
+      {
+        direction: 'LR',
+        nodeWidth,
+        nodeHeight,
+        rankSep: 300,
+        nodeSep: 80,
+      }
+    );
+
+    return { nodes: layoutedNodes, edges: layoutedEdges };
+  }, [lineageData, datasetMap, copiedPath, handleCopyPath]);
 
   const stats = useMemo(() => {
     if (!lineageData) return null;
@@ -461,11 +544,14 @@ function ColumnLineage() {
                   loadColumns(e.target.value);
                 }}
               >
-                {datasets.map((d) => (
-                  <option key={d.id} value={d.name}>
-                    {d.name}
-                  </option>
-                ))}
+                {datasets.map((d) => {
+                  const { bucket, displayName } = parseDatasetName(d.name);
+                  return (
+                    <option key={d.id} value={d.name}>
+                      {bucket ? `${displayName} (${bucket})` : displayName}
+                    </option>
+                  );
+                })}
               </select>
               <ChevronDown size={18} className="select-icon" />
             </div>
@@ -629,12 +715,13 @@ function ColumnLineage() {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.3 }}
             minZoom={0.3}
             maxZoom={1.5}
           >
-            <Background color="#e0e0e0" gap={20} size={1} />
+            <Background color="#c0c4cc" gap={20} size={2} />
             <Controls showInteractive={false} />
             <MiniMap
               nodeColor={(node) => {

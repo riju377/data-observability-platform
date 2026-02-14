@@ -313,8 +313,8 @@ object ColumnLineageExtractor extends LazyLogging {
       case _ =>
         // Try to get a clean representation
         val str = expr.sql
-        if (str.length > 100) {
-          str.take(97) + "..."
+        if (str.length > 3000) {
+          str.take(2997) + "..."
         } else {
           str
         }

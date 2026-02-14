@@ -126,8 +126,8 @@ class EmailProvider(AlertProvider):
         # Get downstream count safely
         downstream_count = 0
         try:
-            query = "SELECT COUNT(*) as count FROM get_downstream_datasets(%s)"
-            result = execute_single(query, (anomaly.get('dataset_name'),))
+            query = "SELECT COUNT(*) as count FROM get_downstream_datasets(%s, %s)"
+            result = execute_single(query, (anomaly.get('dataset_name'), anomaly.get('organization_id')))
             downstream_count = result['count'] if result else 0
         except:
             pass

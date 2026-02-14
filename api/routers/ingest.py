@@ -207,7 +207,11 @@ async def ingest_schema(
 import re
 
 def infer_dataset_type(name: str, location: Optional[str] = None, declared_type: Optional[str] = None) -> str:
-    """Infer dataset type from name, location, and declared type."""
+    """Infer dataset type from name, location, and declared type.
+
+    For FILE type, checks location patterns FIRST to determine the actual
+    storage system (S3, GCS, HDFS, etc.) instead of just returning "file".
+    """
     dt = (declared_type or "").upper()
 
     # Trust the Scala listener for TABLE/VIEW — managed tables may have
@@ -215,11 +219,8 @@ def infer_dataset_type(name: str, location: Optional[str] = None, declared_type:
     if dt in ("TABLE", "VIEW"):
         return dt.lower()
 
-    # Trust the Scala listener if it says File
-    if dt == "FILE":
-        return "file"
-
-    # Check location patterns (only when declared type is absent/unknown)
+    # Check location patterns FIRST — the Scala listener sends "File" for all
+    # path-based reads/writes (S3, GCS, HDFS, etc.) but we want the actual storage type
     loc = (location or "").lower()
     if loc:
         if any(loc.startswith(p) for p in ("s3://", "s3a://", "s3n://")):
@@ -246,6 +247,10 @@ def infer_dataset_type(name: str, location: Optional[str] = None, declared_type:
 
     # Check name path-like patterns (e.g., /Users/.../data)
     if name.startswith("/") or re.match(r'^[a-z]+://', name):
+        return "file"
+
+    # If declared type was FILE but no location matched a specific storage system
+    if dt == "FILE":
         return "file"
 
     # Default: trust declared type or fall back to table
@@ -297,7 +302,7 @@ def process_metadata(payload: IngestPayload, org_id: str):
                 cursor.execute("""
                     INSERT INTO datasets (name, dataset_type, location, organization_id, updated_at)
                     VALUES (%s, %s, %s, %s, NOW())
-                    ON CONFLICT (name) DO UPDATE SET
+                    ON CONFLICT (organization_id, name) DO UPDATE SET
                         dataset_type = COALESCE(EXCLUDED.dataset_type, datasets.dataset_type),
                         location = COALESCE(EXCLUDED.location, datasets.location),
                         organization_id = EXCLUDED.organization_id,
@@ -315,7 +320,8 @@ def process_metadata(payload: IngestPayload, org_id: str):
                     cursor.execute("""
                         INSERT INTO lineage_edges (source_dataset_id, target_dataset_id, job_id, job_name, organization_id, created_at)
                         VALUES (%s, %s, %s, %s, %s, NOW())
-                        ON CONFLICT (source_dataset_id, target_dataset_id, job_id) DO NOTHING
+                        ON CONFLICT (source_dataset_id, target_dataset_id)
+                        DO UPDATE SET job_id = EXCLUDED.job_id, job_name = EXCLUDED.job_name, created_at = NOW()
                     """, (source_id, target_id, payload.job_id, payload.job_name, org_id))
             
             # 3. Insert metrics
@@ -361,8 +367,10 @@ def process_metadata(payload: IngestPayload, org_id: str):
                             job_id, job_name, organization_id, created_at
                         )
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                        ON CONFLICT (source_dataset_id, source_column, target_dataset_id, target_column, job_id)
+                        ON CONFLICT (source_dataset_id, source_column, target_dataset_id, target_column)
                         DO UPDATE SET
+                            job_id = EXCLUDED.job_id,
+                            job_name = EXCLUDED.job_name,
                             transform_type = EXCLUDED.transform_type,
                             expression = EXCLUDED.expression,
                             created_at = NOW()
@@ -426,7 +434,7 @@ def process_schema(payload: IngestSchemaPayload, org_id: str):
                 cursor.execute("""
                     INSERT INTO datasets (name, dataset_type, organization_id, updated_at)
                     VALUES (%s, 'table', %s, NOW())
-                    ON CONFLICT (name) DO UPDATE SET
+                    ON CONFLICT (organization_id, name) DO UPDATE SET
                         organization_id = COALESCE(EXCLUDED.organization_id, datasets.organization_id),
                         updated_at = NOW()
                     RETURNING id

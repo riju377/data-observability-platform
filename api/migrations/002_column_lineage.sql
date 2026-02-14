@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS column_lineage_edges (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     -- Unique constraint to prevent duplicate edges
-    UNIQUE(source_dataset_id, source_column, target_dataset_id, target_column, job_id)
+    UNIQUE(source_dataset_id, source_column, target_dataset_id, target_column)
 );
 
 -- Indexes for efficient traversal

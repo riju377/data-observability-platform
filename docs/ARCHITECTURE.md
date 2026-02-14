@@ -93,7 +93,7 @@ The Data Observability Platform is a three-tier system that transparently captur
 |-------|-----------|---------|
 | Listener | Scala, Apache Spark | 2.12.18, 3.5.0 |
 | Backend API | Python, FastAPI, Pydantic, psycopg3, Jinja2 | 3.14 |
-| Frontend | React, ReactFlow, Recharts, Vite, Axios, Lucide | 19, 11, 3, 7 |
+| Frontend | React, ReactFlow, dagre, Recharts, Vite, Axios, Lucide | 19, 11, -, 3, 7 |
 | Database | PostgreSQL | 16 |
 | Infrastructure | Docker Compose (PostgreSQL, Jupyter, MinIO) | -- |
 | Build | sbt (Scala), npm (frontend), pip (API) | -- |
@@ -137,6 +137,8 @@ Extends both `SparkListener` and `QueryExecutionListener` to capture metadata at
 
 Self-registration as `QueryExecutionListener` is handled via reflection in `ensureQueryListenerRegistered()`, attempting `getActiveSession`, then `getDefaultSession`, because `spark.sql.queryExecutionListeners` config does not work reliably for programmatic registration.
 
+**Flush/self-read filtering:** The listener filters out inputs that match the output paths of the same query (flush reads), as well as checkpoint and staging paths (e.g., `_spark_metadata`, `.spark-staging`). This prevents spurious lineage edges where Spark reads back data it just wrote as part of its internal commit protocol.
+
 **Key tracking maps:**
 
 ```scala
@@ -163,7 +165,19 @@ Performs recursive depth-first traversal of Spark's `LogicalPlan` tree to extrac
 - `InsertIntoHadoopFsRelationCommand` -- file-based writes (Parquet, Avro, ORC, CSV, JSON); extracts file path using URI pattern matching
 - `SaveIntoDataSourceCommand` -- `DataFrame.save()` operations
 
-**Partition path normalization:** Partitioned paths like `s3://bucket/data/date=2024-01-01/country=US/` are normalized to the logical dataset name `data`, stripping Hive-style partition segments, ISO dates, country codes, and environment markers.
+**Partition path normalization:** Partitioned paths like `s3://bucket/data/date=2024-01-01/country=US/` are normalized to the logical dataset name `data`, stripping Hive-style partition segments and the following recognized patterns:
+
+| Pattern | Example | Regex |
+|---------|---------|-------|
+| ISO date | `2024-01-01` | `\d{4}-\d{2}-\d{2}` |
+| Compact date (YYYYMMDD) | `20240101` | `\d{8}` |
+| Year-month (YYYYMM) | `202401` | `\d{6}` |
+| Date range | `20240101-20240131` | `\d{8}-\d{8}` |
+| 2-letter uppercase country | `US`, `IN` | `[A-Z]{2}` |
+| 2-letter lowercase country | `us`, `in` | `[a-z]{2}` |
+| Environment markers | `prod`, `staging` | Literal match |
+
+**Composite dataset naming:** Path-based datasets use a `bucket:logical_name` format (e.g., `mw-device-profile:high_value_brand_propensity`) to preserve the S3 bucket or root container as context. The helper `extractBucketFromPath()` extracts the bucket component from the URI. Catalog tables (those with a `catalogTable` entry) retain their simple names without a bucket prefix.
 
 **Path generalization:** Physical paths are generalized for location storage, replacing partition values with wildcards (e.g., `date=2024-01-01` becomes `date=*`).
 
@@ -391,7 +405,7 @@ async def ingest_metadata(payload, background_tasks, org):
 ```
 1. Upsert all datasets (inputs + outputs + column lineage tables)
    - INSERT ... ON CONFLICT (name) DO UPDATE
-   - Infers dataset_type from name/location patterns
+   - Infers dataset_type via `infer_dataset_type()`: checks location patterns first (S3 paths -> "s3", HDFS -> "hdfs", etc.) before falling back to the reported table type, so path-based datasets show their storage type rather than a generic "file"
 
 2. Insert lineage edges
    - INSERT ... ON CONFLICT (source, target, job_id) DO NOTHING
@@ -495,18 +509,21 @@ Single-page React application built with Vite.
 **Technology:**
 - React 19 with React Router 7 for routing
 - ReactFlow 11 for interactive lineage DAG visualization
+- dagre for automatic graph layout (replaces manual node positioning)
 - Recharts 3 for metrics time-series charts
 - Axios for API communication
 - Lucide React for icons
+
+**Composite dataset name display:** The `parseDatasetName(name)` utility splits `bucket:logical_name` into `{ bucket, displayName }`. All pages that display dataset names (Lineage, ColumnLineage, Schema) use this helper to show the short display name with a bucket badge where applicable. The lineage dropdown shows entries in `displayName (bucket)` format for clarity.
 
 **Pages:**
 
 | Route | Component | Description |
 |-------|-----------|-------------|
 | `/` | `Dashboard` | Overview statistics and summary |
-| `/lineage` | `Lineage` | Interactive table-level lineage graph (ReactFlow) |
+| `/lineage` | `Lineage` | Interactive table-level lineage graph (ReactFlow + dagre auto-layout, bezier edges, bucket badges) |
 | `/column-lineage` | `ColumnLineage` | Column-level lineage visualization |
-| `/schema` | `Schema` | Schema history, diff viewer, field tree |
+| `/schema` | `Schema` | Schema history, diff viewer, field tree (with overflow-safe containers) |
 | `/anomalies` | `Anomalies` | Detected anomalies list with filtering |
 | `/alerts` | `Alerts` | Alert rule CRUD management |
 | `/api-keys` | `ApiKeys` | API key management |

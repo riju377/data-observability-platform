@@ -123,8 +123,8 @@ No special PostgreSQL extensions are required beyond `uuid-ossp` and `pgcrypto`,
 
 | Directory / File | Purpose |
 |---|---|
-| `listener/ObservabilityListener.scala` | Main Spark listener. Hooks into `onJobEnd` and `onSuccess` to capture execution metadata. |
-| `lineage/QueryPlanParser.scala` | Parses Spark logical plans to extract dataset-level lineage (sources and sinks). |
+| `listener/ObservabilityListener.scala` | Main Spark listener. Hooks into `onJobEnd` and `onSuccess` to capture execution metadata. Filters out flush/self-reads (inputs matching output paths) and checkpoint/staging paths. |
+| `lineage/QueryPlanParser.scala` | Parses Spark logical plans to extract dataset-level lineage (sources and sinks). Normalizes partition paths (YYYYMMDD, YYYYMM, date ranges, country codes). Uses `bucket:logical_name` composite naming for path-based datasets via `extractBucketFromPath()`. Filters flush/self-reads and checkpoint paths. |
 | `lineage/ColumnLineageExtractor.scala` | Extracts column-level lineage from query plans. |
 | `schema/SchemaTracker.scala` | Records schema snapshots for datasets. |
 | `schema/SchemaComparator.scala` | Detects schema changes between snapshots. |
@@ -144,7 +144,7 @@ No special PostgreSQL extensions are required beyond `uuid-ossp` and `pgcrypto`,
 | `alerting.py` | Alert dispatch with strategy pattern. Includes email, Slack, and Microsoft Teams providers. |
 | `services/anomaly_service.py` | 3-sigma anomaly detection. Requires at least 5 data points. |
 | `services/alert_service.py` | Matches alert rules to detected anomalies and dispatches notifications. |
-| `routers/ingest.py` | Metadata ingestion endpoint (`POST /api/v1/ingest/metadata`). Processes incoming data in the background: upserts datasets, lineage edges, and metrics, then triggers anomaly detection. |
+| `routers/ingest.py` | Metadata ingestion endpoint (`POST /api/v1/ingest/metadata`). Processes incoming data in the background: upserts datasets, lineage edges, and metrics, then triggers anomaly detection. `infer_dataset_type()` checks location patterns (S3, HDFS, etc.) before table type, so path-based datasets get accurate storage types. |
 | `routers/auth.py` | Authentication endpoints: register, login, API key management. |
 | `.env` | Email alerting configuration (see Configuration Reference below). |
 
@@ -153,7 +153,7 @@ No special PostgreSQL extensions are required beyond `uuid-ossp` and `pgcrypto`,
 | Path | Purpose |
 |---|---|
 | `client/src/` | React source code. |
-| Key dependencies | React 19.2, React Router 7.13, ReactFlow 11.11 (lineage graphs), Recharts 3.7 (charts), Axios 1.13, Lucide React (icons), Vite 7.2. |
+| Key dependencies | React 19.2, React Router 7.13, ReactFlow 11.11 (lineage graphs), dagre (automatic graph layout), Recharts 3.7 (charts), Axios 1.13, Lucide React (icons), Vite 7.2. |
 
 ### Scripts and Configuration
 
@@ -263,6 +263,10 @@ For Gmail, you must generate an App Password (Google Account > Security > 2-Step
 2. Implement the `send_alert(anomaly, config)` method.
 3. Register the new provider in `AlertFactory.PROVIDERS` dict.
 4. Create an alert rule with the new `channel_type` to use it.
+
+### Frontend utilities for composite dataset names
+
+Datasets that originate from file paths use a `bucket:logical_name` naming convention. The frontend provides a `parseDatasetName(name)` helper that splits this into `{ bucket, displayName }`. When adding new pages or components that display dataset names, use this helper so the UI shows the short display name with a bucket badge. It is already used in the Lineage, ColumnLineage, and Schema pages.
 
 ### Adding new metadata capture in the Spark listener
 

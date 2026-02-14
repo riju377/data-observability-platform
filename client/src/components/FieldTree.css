@@ -71,6 +71,8 @@
   position: relative;
   --indent: calc(var(--level, 0) * 20px);
   margin-left: var(--indent);
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* Tree connecting lines */
@@ -217,8 +219,8 @@
   margin-left: 2px;
 }
 
-/* Copy Path Button */
-.copy-path-btn {
+/* Copy Path Button - scoped to schema-tree to avoid leaking into Lineage nodes */
+.schema-tree .copy-path-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -240,13 +242,13 @@
   opacity: 0.6;
 }
 
-.copy-path-btn:hover {
+.schema-tree .copy-path-btn:hover {
   opacity: 1 !important;
   background: var(--primary);
   color: white;
 }
 
-.copy-path-btn:active {
+.schema-tree .copy-path-btn:active {
   transform: scale(0.9);
 }
 
@@ -267,7 +269,9 @@
   transition: all 0.15s ease;
   color: var(--type-color, var(--text-muted));
   border: 1px solid transparent;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
   max-width: 200px;
 }
 
@@ -276,6 +280,7 @@
   text-overflow: ellipsis;
   font-family: inherit;
   letter-spacing: -0.2px;
+  min-width: 0;
 }
 
 .field-row:hover .type-badge {
@@ -589,7 +594,7 @@
   .type-badge,
   .field-children,
   .schema-tree-btn,
-  .copy-path-btn {
+  .schema-tree .copy-path-btn {
     transition: none;
   }
 
@@ -612,7 +617,7 @@
     break-inside: avoid;
   }
 
-  .copy-path-btn,
+  .schema-tree .copy-path-btn,
   .schema-tree-controls {
     display: none;
   }

@@ -29,7 +29,7 @@ def init_db():
                     print("Updating stored functions...")
                     functions_sql = """
                     -- Function to get all upstream column dependencies
-                    CREATE OR REPLACE FUNCTION get_upstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR)
+                    CREATE OR REPLACE FUNCTION get_upstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR, p_org_id UUID)
                     RETURNS TABLE(dataset_name VARCHAR, column_name VARCHAR, transform_type VARCHAR, expression TEXT, depth INTEGER) AS $$
                     WITH RECURSIVE upstream AS (
                         -- Base case: find direct parents
@@ -43,6 +43,7 @@ def init_db():
                         JOIN datasets dt ON cle.target_dataset_id = dt.id
                         JOIN datasets ds ON cle.source_dataset_id = ds.id
                         WHERE dt.name = dataset_name_param AND cle.target_column = column_name_param
+                          AND dt.organization_id = p_org_id
 
                         UNION
 
@@ -54,7 +55,7 @@ def init_db():
                             cle.expression,
                             u.depth + 1 as depth
                         FROM upstream u
-                        JOIN datasets dt ON u.dataset_name = dt.name
+                        JOIN datasets dt ON u.dataset_name = dt.name AND dt.organization_id = p_org_id
                         JOIN column_lineage_edges cle ON dt.id = cle.target_dataset_id AND u.column_name = cle.target_column
                         JOIN datasets ds ON cle.source_dataset_id = ds.id
                         WHERE u.depth < 10
@@ -66,7 +67,7 @@ def init_db():
                     $$ LANGUAGE SQL;
 
                     -- Function to get all downstream column dependencies
-                    CREATE OR REPLACE FUNCTION get_downstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR)
+                    CREATE OR REPLACE FUNCTION get_downstream_columns(dataset_name_param VARCHAR, column_name_param VARCHAR, p_org_id UUID)
                     RETURNS TABLE(dataset_name VARCHAR, column_name VARCHAR, transform_type VARCHAR, expression TEXT, depth INTEGER) AS $$
                     WITH RECURSIVE downstream AS (
                         -- Base case: find direct children
@@ -80,6 +81,7 @@ def init_db():
                         JOIN datasets ds ON cle.source_dataset_id = ds.id
                         JOIN datasets dt ON cle.target_dataset_id = dt.id
                         WHERE ds.name = dataset_name_param AND cle.source_column = column_name_param
+                          AND ds.organization_id = p_org_id
 
                         UNION
 
@@ -91,7 +93,7 @@ def init_db():
                             cle.expression,
                             d.depth + 1 as depth
                         FROM downstream d
-                        JOIN datasets ds ON d.dataset_name = ds.name
+                        JOIN datasets ds ON d.dataset_name = ds.name AND ds.organization_id = p_org_id
                         JOIN column_lineage_edges cle ON ds.id = cle.source_dataset_id AND d.column_name = cle.source_column
                         JOIN datasets dt ON cle.target_dataset_id = dt.id
                         WHERE d.depth < 10

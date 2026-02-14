@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS lineage_edges (
     job_id VARCHAR(200),          -- Spark job ID that created this edge
     job_name VARCHAR(500),        -- Human-readable job name
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_dataset_id, target_dataset_id, job_id)
+    UNIQUE(source_dataset_id, target_dataset_id)
 );
 
 CREATE INDEX idx_lineage_source ON lineage_edges(source_dataset_id);

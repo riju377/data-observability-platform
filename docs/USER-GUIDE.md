@@ -173,7 +173,7 @@ spark-submit \
 
 Once the listener is enabled, the following metadata is captured for every Spark job with no additional configuration:
 
-- **Table lineage** -- Input-to-output dataset dependencies. If your job reads from `bronze_taxi_trips` and writes to `silver_enriched_trips`, that edge is recorded.
+- **Table lineage** -- Input-to-output dataset dependencies. If your job reads from `bronze_taxi_trips` and writes to `silver_enriched_trips`, that edge is recorded. Path-based datasets are named using a `bucket:logical_name` convention (e.g., `mw-device-profile:high_value_brand_propensity`). Self-reads (where Spark reads back data it just wrote as part of its commit protocol) and checkpoint/staging paths are automatically filtered out.
 - **Column lineage** -- Field-to-field mappings with transform type classification:
   - `DIRECT` -- Column passes through unchanged
   - `EXPRESSION` -- Column is derived from a computation (e.g., `UPPER(name)`, `value * 2`)
@@ -561,11 +561,13 @@ The main dashboard provides an overview of:
 
 ### Lineage Page
 
-An interactive directed acyclic graph (DAG) rendered with ReactFlow. Click any node to see its details, upstream/downstream dependencies, and column-level lineage. Use this to visually trace data flow through your pipeline.
+An interactive directed acyclic graph (DAG) rendered with ReactFlow and automatically laid out using the dagre library. Edges use bezier curves for readability. Click any node to see its details, upstream/downstream dependencies, and column-level lineage. Use this to visually trace data flow through your pipeline.
+
+**Composite dataset names:** Path-based datasets (e.g., S3 paths) are displayed with a `bucket:name` naming convention. In the UI, the short logical name is shown prominently on each node, with a small bucket badge indicating the storage container. The dataset dropdown shows entries in `displayName (bucket)` format so you can distinguish datasets that share a logical name but reside in different buckets.
 
 ### Schema Page
 
-View the current schema for any dataset. The history view shows all schema versions with change descriptions, highlighting:
+View the current schema for any dataset. The schema tree containers handle wide schemas gracefully with horizontal scrolling to prevent overflow. The history view shows all schema versions with change descriptions, highlighting:
 - Added columns (non-breaking)
 - Removed columns (breaking)
 - Type changes (breaking)

@@ -64,6 +64,7 @@ function Register() {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
+          <img src="/logo.png" alt="Data Observability Platform" className="auth-logo" />
           <h1>Data Observability</h1>
           <p>Create your account</p>
         </div>
@@ -163,6 +164,13 @@ function Register() {
         .login-header {
           text-align: center;
           margin-bottom: 2rem;
+        }
+
+        .auth-logo {
+          width: 64px;
+          height: 64px;
+          object-fit: contain;
+          margin-bottom: 1rem;
         }
 
         .login-header h1 {

@@ -73,7 +73,7 @@ function Layout() {
         <div className="navbar-container">
           {/* Brand */}
           <div className="nav-brand">
-            <Database size={32} />
+            <img src="/logo.png" alt="Logo" className="nav-logo" />
             <h1>Data Observability</h1>
           </div>
 

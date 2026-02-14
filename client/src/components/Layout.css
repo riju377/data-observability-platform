@@ -632,4 +632,8 @@
 /* Prevent body scroll when mobile menu is open */
 body:has(.mobile-menu.open) {
   overflow: hidden;
+}.nav-logo {
+    height: 32px;
+    width: auto;
+    object-fit: contain;
 }

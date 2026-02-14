@@ -37,9 +37,7 @@ function Login() {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
-          <div className="logo-icon">
-            <Database size={40} />
-          </div>
+          <img src="/logo.png" alt="Data Observability Platform" className="auth-logo" />
           <h1>Data Observability</h1>
           <p>Sign in to your account</p>
         </div>
@@ -63,6 +61,8 @@ function Login() {
               autoFocus
             />
           </div>
+
+
 
           <div className="form-group">
             <label htmlFor="password">Password</label>

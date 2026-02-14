@@ -276,3 +276,9 @@
     animation: none;
   }
 }
+.auth-logo {
+    width: 64px;
+    height: 64px;
+    object-fit: contain;
+    margin-bottom: 1rem;
+}

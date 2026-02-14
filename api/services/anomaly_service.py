@@ -128,6 +128,86 @@ class AnomalyService:
         return None
 
     @staticmethod
+    def _generate_schema_description(changes: List[str], change_type: str, column_diff: int) -> str:
+        """
+        Generate a professional, human-readable description for schema changes.
+
+        Args:
+            changes: List of raw change strings
+            change_type: BREAKING, NON_BREAKING, or MODIFICATION
+            column_diff: Difference in column count (positive = added, negative = removed)
+
+        Returns:
+            Professional description string
+        """
+        if not changes:
+            return "No schema changes detected."
+
+        # Count different types of changes
+        added_cols = [c for c in changes if "Column added:" in c]
+        removed_cols = [c for c in changes if "Column removed:" in c]
+        type_changes = [c for c in changes if "Type changed:" in c]
+        null_to_not_null = [c for c in changes if "NULLABLE -> NOT NULL" in c]
+        not_null_to_null = [c for c in changes if "NOT NULL -> NULLABLE" in c]
+
+        parts = []
+
+        # Summary statement based on severity
+        if change_type == "BREAKING":
+            parts.append("⚠️ Breaking schema changes detected that may impact downstream consumers.")
+        elif change_type == "NON_BREAKING":
+            parts.append("Schema has been extended with new columns.")
+        else:
+            parts.append("Schema modifications detected.")
+
+        # Detail the changes in natural language
+        details = []
+        if added_cols:
+            col_names = [c.split(":")[1].strip().split("(")[0].strip() for c in added_cols]
+            if len(col_names) == 1:
+                details.append(f"Added 1 new column: '{col_names[0]}'")
+            else:
+                col_list = ', '.join([f"'{c}'" for c in col_names])
+                details.append(f"Added {len(col_names)} new columns: {col_list}")
+
+        if removed_cols:
+            col_names = [c.split(":")[1].strip().split("(")[0].strip() for c in removed_cols]
+            if len(col_names) == 1:
+                details.append(f"Removed column '{col_names[0]}'")
+            else:
+                col_list = ', '.join([f"'{c}'" for c in col_names])
+                details.append(f"Removed {len(col_names)} columns: {col_list}")
+
+        if type_changes:
+            col_names = [c.split(":")[1].strip().split("(")[0].strip() for c in type_changes]
+            if len(col_names) == 1:
+                details.append(f"Data type changed for column '{col_names[0]}'")
+            else:
+                col_list = ', '.join([f"'{c}'" for c in col_names])
+                details.append(f"Data types changed for {len(col_names)} columns: {col_list}")
+
+        if null_to_not_null:
+            col_names = [c.split(":")[1].strip().split("(")[0].strip() for c in null_to_not_null]
+            if len(col_names) == 1:
+                details.append(f"Column '{col_names[0]}' no longer accepts null values")
+            else:
+                col_list = ', '.join([f"'{c}'" for c in col_names])
+                details.append(f"{len(col_names)} columns no longer accept null values: {col_list}")
+
+        if not_null_to_null:
+            col_names = [c.split(":")[1].strip().split("(")[0].strip() for c in not_null_to_null]
+            if len(col_names) == 1:
+                details.append(f"Column '{col_names[0]}' now accepts null values")
+            else:
+                col_list = ', '.join([f"'{c}'" for c in col_names])
+                details.append(f"{len(col_names)} columns now accept null values: {col_list}")
+
+        if details:
+            parts.append(" ".join(details))
+
+        return " ".join(parts)
+
+    @staticmethod
     def detect_schema_change(
         dataset_name: str,
         old_fields: List[dict],
@@ -230,7 +310,8 @@ class AnomalyService:
             change_type = "MODIFICATION"
             severity = "WARNING"
 
-        description = "; ".join(changes)
+        # Generate professional, human-readable description
+        description = AnomalyService._generate_schema_description(changes, change_type, len(new_fields) - len(old_fields))
 
         anomalies = [{
             "dataset_name": dataset_name,

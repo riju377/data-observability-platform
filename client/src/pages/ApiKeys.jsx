@@ -30,7 +30,9 @@ function ApiKeys() {
       // Use explicit API URL from env or default to relative (which handled by proxy in dev, but needs rewrite in prod if not set)
       // Better: use the same API_BASE as AuthContext
       const apiBase = import.meta.env.VITE_API_URL || '';
-      const response = await fetch(`${apiBase}/api/v1/auth/api-keys`, {
+      const url = `${apiBase}/api/v1/auth/api-keys`;
+
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -63,7 +65,34 @@ function ApiKeys() {
 
   useEffect(() => {
     fetchKeys();
+    fetchLatestVersion();
   }, []); // Run once on mount
+
+  // Fetch latest version from Maven Central
+  const [latestVersion, setLatestVersion] = useState('1.3.0'); // Fallback default
+
+  const fetchLatestVersion = async () => {
+    try {
+      // Fetch maven-metadata.xml via public CORS proxy (allorigins.win)
+      const metadataUrl =
+        "https://repo1.maven.org/maven2/io/github/riju377/data-observability-platform_2.12/maven-metadata.xml";
+      const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(metadataUrl);
+
+      const response = await fetch(proxyUrl);
+      if (response.ok) {
+        const text = await response.text();
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(text, "application/xml");
+        const latest = xml.querySelector("latest")?.textContent;
+
+        if (latest) {
+          setLatestVersion(latest);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch latest version via allorigins', e);
+    }
+  };
 
   // Real-time validation
   const validateKeyName = (name) => {
@@ -251,7 +280,7 @@ function ApiKeys() {
                 <label>Quick Start:</label>
                 <div className="code-block">
                   <pre>{`spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${createdKey.key} \\
   your-application.jar`}</pre>
@@ -260,7 +289,7 @@ function ApiKeys() {
                     onClick={() =>
                       copyToClipboard(
                         `spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${createdKey.key} \\
   your-application.jar`,
@@ -458,7 +487,18 @@ function ApiKeys() {
             <div className="step-number">1</div>
             <div className="step-content">
               <h3>Add the Package</h3>
-              <p>Choose your build tool and add the Data Observability listener.</p>
+              <p>
+                Choose your build tool and add the Data Observability listener.
+                <a
+                  href="https://central.sonatype.com/artifact/io.github.riju377/data-observability-platform_2.12"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="version-link"
+                  style={{ marginLeft: '10px', fontSize: '0.8rem', color: '#667eea', textDecoration: 'none' }}
+                >
+                  Latest: {latestVersion} ↗
+                </a>
+              </p>
 
               <div className="code-tabs">
                 <div className="tab-bar">
@@ -486,7 +526,7 @@ function ApiKeys() {
                 {activeTab === 'spark-submit' && (
                   <div className="code-block">
                     <pre>{`spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=<YOUR_API_KEY> \\
   your-application.jar`}</pre>
@@ -495,7 +535,7 @@ function ApiKeys() {
                       onClick={() =>
                         copyToClipboard(
                           `spark-submit \\
-  --packages io.github.riju377:data-observability-platform_2.12:1.3.0 \\
+  --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${keys.length > 0 ? keys[0].key_prefix + '...' : '<YOUR_API_KEY>'} \\
   your-application.jar`,
@@ -512,12 +552,12 @@ function ApiKeys() {
                 {activeTab === 'sbt' && (
                   <div className="code-block">
                     <pre>{`// build.sbt
-libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "1.3.0"`}</pre>
+libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "${latestVersion}"`}</pre>
                     <button
                       className="copy-code-btn"
                       onClick={() =>
                         copyToClipboard(
-                          `libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "1.3.0"`,
+                          `libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "${latestVersion}"`,
                           'guide-sbt',
                           'SBT dependency'
                         )
@@ -533,13 +573,13 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "1
                     <pre>{`<dependency>
   <groupId>io.github.riju377</groupId>
   <artifactId>data-observability-platform_2.12</artifactId>
-  <version>1.3.0</version>
+  <version>${latestVersion}</version>
 </dependency>`}</pre>
                     <button
                       className="copy-code-btn"
                       onClick={() =>
                         copyToClipboard(
-                          `<dependency>\n  <groupId>io.github.riju377</groupId>\n  <artifactId>data-observability-platform_2.12</artifactId>\n  <version>1.3.0</version>\n</dependency>`,
+                          `<dependency>\n  <groupId>io.github.riju377</groupId>\n  <artifactId>data-observability-platform_2.12</artifactId>\n  <version>${latestVersion}</version>\n</dependency>`,
                           'guide-maven',
                           'Maven dependency'
                         )

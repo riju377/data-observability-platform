@@ -14,7 +14,7 @@
 set -e
 
 API_URL="${API_URL:-https://data-observability-api.onrender.com}"
-PACKAGE="io.github.riju377:data-observability-platform_2.12:1.3.0"
+PACKAGE="io.github.riju377:data-observability-platform_2.12:1.4.0"
 
 echo "=============================================="
 echo " Quick Lineage Test"

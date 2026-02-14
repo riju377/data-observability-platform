@@ -26,3 +26,6 @@ requests
 PyJWT
 bcrypt>=4.0.0
 email-validator>=2.0.0
+
+dotenv
+psycopg

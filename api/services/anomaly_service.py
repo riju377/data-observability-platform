@@ -155,14 +155,30 @@ class AnomalyService:
 
         # Columns added
         added = new_names - old_names
+        diffs = []
+        
         for col in sorted(added):
-            changes.append(f"Column added: {col} ({new_map[col].get('type', '?')})")
+            dtype = new_map[col].get('type', '?')
+            changes.append(f"Column added: {col} ({dtype})")
+            diffs.append({
+                "action": "COLUMN_ADDED",
+                "column": col,
+                "details": f"Type: {dtype}",
+                "severity": "info"
+            })
 
         # Columns removed (breaking)
         removed = old_names - new_names
         for col in sorted(removed):
-            changes.append(f"Column removed: {col} (was {old_map[col].get('type', '?')})")
+            dtype = old_map[col].get('type', '?')
+            changes.append(f"Column removed: {col} (was {dtype})")
             breaking = True
+            diffs.append({
+                "action": "COLUMN_REMOVED",
+                "column": col,
+                "details": f"Was: {dtype}",
+                "severity": "critical"
+            })
 
         # Type / nullability changes on surviving columns
         for col in sorted(old_names & new_names):
@@ -174,12 +190,31 @@ class AnomalyService:
             if old_type != new_type:
                 changes.append(f"Type changed: {col} ({old_type} -> {new_type})")
                 breaking = True
+                diffs.append({
+                    "action": "TYPE_CHANGED",
+                    "column": col,
+                    "details": f"{old_type} → {new_type}",
+                    "severity": "warning"
+                })
+                
             if old_null != new_null:
                 if new_null:
                     changes.append(f"Nullability changed: {col} (NOT NULL -> NULLABLE)")
+                    diffs.append({
+                        "action": "NULLABILITY_CHANGED",
+                        "column": col,
+                        "details": "NOT NULL → NULLABLE",
+                        "severity": "info"
+                    })
                 else:
                     changes.append(f"Nullability changed: {col} (NULLABLE -> NOT NULL)")
                     breaking = True
+                    diffs.append({
+                        "action": "NULLABILITY_CHANGED",
+                        "column": col,
+                        "details": "NULLABLE → NOT NULL",
+                        "severity": "critical"
+                    })
 
         if not changes:
             return [], "UNCHANGED", ""
@@ -201,8 +236,13 @@ class AnomalyService:
             "dataset_name": dataset_name,
             "anomaly_type": SCHEMA_CHANGE,
             "severity": severity,
-            "current_value": len(new_fields),
-            "expected_value": len(old_fields),
+            "current_value": {
+                "count": len(new_fields),
+                "diff": diffs
+            },
+            "expected_value": {
+                "count": len(old_fields)
+            },
             "threshold": 0,
             "deviation": len(changes),
             "message": f"Schema {change_type.lower().replace('_', '-')}: {description}",

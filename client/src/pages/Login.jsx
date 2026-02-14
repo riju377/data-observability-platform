@@ -14,7 +14,9 @@ function Login() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const from = location.state?.from?.pathname || '/';
+  // Support both ProtectedRoute state and query param from interceptor
+  const redirectParam = new URLSearchParams(window.location.search).get('redirect');
+  const from = redirectParam || location.state?.from?.pathname || '/';
 
   const handleSubmit = async (e) => {
     e.preventDefault();

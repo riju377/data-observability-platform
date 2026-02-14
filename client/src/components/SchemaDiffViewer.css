@@ -1,0 +1,123 @@
+.schema-diff-viewer {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    background: var(--surface, #f8fafc);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border, #e2e8f0);
+    margin-top: 8px;
+}
+
+.diff-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.diff-table th {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--border, #e2e8f0);
+    color: var(--text-muted, #64748b);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--background, #f1f5f9);
+}
+
+.diff-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border, #f1f5f9);
+    color: var(--text-primary, #334155);
+    vertical-align: middle;
+}
+
+.diff-table tr:last-child td {
+    border-bottom: none;
+}
+
+.col-action {
+    width: 110px;
+}
+
+.col-name {
+    font-weight: 600;
+    color: var(--text-primary, #1e293b);
+}
+
+.col-details {
+    color: var(--text-muted, #64748b);
+}
+
+/* Badges */
+.diff-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.badge-added {
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
+.badge-removed {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+.badge-changed {
+    background: #ffedd5;
+    color: #9a3412;
+    border: 1px solid #fed7aa;
+}
+
+.badge-info {
+    background: #e0f2fe;
+    color: #075985;
+    border: 1px solid #bae6fd;
+}
+
+/* Arrow in details */
+.diff-arrow-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.inline-arrow {
+    color: #94a3b8;
+}
+
+/* Toggle Button */
+.diff-expand-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    background: var(--background, #f1f5f9);
+    border: none;
+    border-top: 1px solid var(--border, #e2e8f0);
+    color: var(--text-muted, #64748b);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.diff-expand-btn:hover {
+    background: var(--surface-hover, rgba(0, 0, 0, 0.05));
+    color: var(--text-primary, #1e293b);
+}
+
+[data-theme='dark'] .diff-expand-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}

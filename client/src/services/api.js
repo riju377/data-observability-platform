@@ -24,7 +24,9 @@ api.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401) {
       localStorage.removeItem('token');
-      window.location.href = '/login';
+      // Preserve current path for redirect after login
+      const currentPath = window.location.pathname;
+      window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
     }
     return Promise.reject(error);
   }
@@ -91,5 +93,10 @@ export const getJob = (uuid) => api.get(`/jobs/${uuid}`);
 export const getJobStages = (uuid) => api.get(`/jobs/${uuid}/stages`);
 export const getJobStage = (uuid, stageId) => api.get(`/jobs/${uuid}/stages/${stageId}`);
 export const getJobsSummary = (hours = 24) => api.get(`/jobs/stats/summary?hours=${hours}`);
+
+// API Keys Management
+export const getApiKeys = () => api.get('/api/v1/auth/api-keys');
+export const createApiKey = (payload) => api.post('/api/v1/auth/api-keys', payload);
+export const deleteApiKey = (keyId) => api.delete(`/api/v1/auth/api-keys/${keyId}`);
 
 export default api;

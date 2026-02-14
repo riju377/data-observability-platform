@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Key, Copy, Trash2, Plus, Loader2, AlertCircle, Terminal, BookOpen, ChevronRight } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
+import { getApiKeys, createApiKey, deleteApiKey } from '../services/api';
 import './ApiKeys.css';
 
 function ApiKeys() {
@@ -18,7 +18,6 @@ function ApiKeys() {
   const [deletingId, setDeletingId] = useState(null);
   const [activeTab, setActiveTab] = useState('spark-submit');
 
-  const { token } = useAuth();
   const toast = useToast();
 
   const fetchKeys = useCallback(async (showLoader = true) => {
@@ -27,29 +26,10 @@ function ApiKeys() {
         setLoading(true);
       }
 
-      // Use explicit API URL from env or default to relative (which handled by proxy in dev, but needs rewrite in prod if not set)
-      // Better: use the same API_BASE as AuthContext
-      const apiBase = import.meta.env.VITE_API_URL || '';
-      const url = `${apiBase}/api/v1/auth/api-keys`;
-
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          // Token expired or invalid, let AuthContext handle it or redirect
-          console.warn('API Keys fetch 401: Unauthorized');
-          return;
-        }
-        throw new Error('Failed to fetch API keys');
-      }
-
-      const data = await response.json();
-      setKeys(data);
+      const res = await getApiKeys();
+      setKeys(res.data);
     } catch (err) {
+      // 401 handled by interceptor automatically
       console.error('API Keys Error:', err);
       // Only show toast if it's NOT a "Unexpected token <" html error which spams
       if (!err.message.includes('Unexpected token')) {
@@ -61,7 +41,7 @@ function ApiKeys() {
       }
       setInitialLoading(false);
     }
-  }, [token, toast]);
+  }, [toast]);
 
   useEffect(() => {
     fetchKeys();
@@ -128,34 +108,21 @@ function ApiKeys() {
 
     setCreating(true);
 
-    const apiBase = import.meta.env.VITE_API_URL || '';
     try {
-      const response = await fetch(`${apiBase}/api/v1/auth/api-keys`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: newKeyName,
-          scopes: ['ingest', 'read'], // All keys get both permissions
-        }),
+      const res = await createApiKey({
+        name: newKeyName,
+        scopes: ['ingest', 'read'], // All keys get both permissions
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.detail || 'Failed to create API key');
-      }
-
-      const data = await response.json();
-      setCreatedKey(data);
+      setCreatedKey(res.data);
       setNewKeyName('');
       setNameError('');
       setShowCreateModal(false);
       fetchKeys(false); // Don't show loader when refreshing after creation
       toast.success('API Key Created', 'Your new API key has been generated successfully');
     } catch (err) {
-      toast.error('Failed to create key', err.message);
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to create API key';
+      toast.error('Failed to create key', errorMessage);
     } finally {
       setCreating(false);
     }
@@ -168,18 +135,8 @@ function ApiKeys() {
 
     setDeletingId(keyId);
 
-    const apiBase = import.meta.env.VITE_API_URL || '';
     try {
-      const response = await fetch(`${apiBase}/api/v1/auth/api-keys/${keyId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to revoke API key');
-      }
+      await deleteApiKey(keyId);
 
       fetchKeys(false); // Don't show loader when refreshing after deletion
       toast.success('API Key Revoked', `"${keyName}" has been permanently revoked`);

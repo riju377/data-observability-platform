@@ -3,6 +3,8 @@ import { getAnomalies } from '../services/api';
 import { AlertTriangle, AlertCircle, Info, Clock, Database, Filter, Loader2 } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
+import SchemaDiffViewer from '../components/SchemaDiffViewer';
+import AnomalyMetricComparison from '../components/AnomalyMetricComparison';
 import './Anomalies.css';
 
 function Anomalies() {
@@ -104,7 +106,24 @@ function Anomalies() {
               </div>
               <div className="anomaly-body">
                 <h4 className="anomaly-type">{a.anomaly_type}</h4>
-                <p className="anomaly-description">{a.description}</p>
+                {a.anomaly_type === 'SchemaChange' ? (
+                  <SchemaDiffViewer
+                    diff={a.actual_value?.diff}
+                    description={a.description}
+                  />
+                ) : (a.anomaly_type.includes('RowCount') || a.anomaly_type.includes('Volume')) ? (
+                  <>
+                    <p className="anomaly-description">{a.description}</p>
+                    <AnomalyMetricComparison
+                      actual={a.actual_value}
+                      expected={a.expected_value}
+                      type={a.anomaly_type}
+                      severity={a.severity}
+                    />
+                  </>
+                ) : (
+                  <p className="anomaly-description">{a.description}</p>
+                )}
               </div>
               <div className="anomaly-footer">
                 <Clock size={14} />

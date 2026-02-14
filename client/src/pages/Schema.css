@@ -803,4 +803,81 @@
     max-height: none;
     overflow: visible;
   }
+}/* Floating Compare Button */
+.floating-compare {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+    from {
+        transform: translate(-50%, 100%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translate(-50%, 0);
+        opacity: 1;
+    }
+}
+
+.floating-compare .diff-btn {
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.5);
+    border-radius: 50px;
+}
+
+.floating-compare .diff-btn:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+}
+
+/* Checkbox Styles */
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.checkbox-wrapper input[type="checkbox"] {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #cbd5e1;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+    background: white;
+}
+
+.checkbox-wrapper input[type="checkbox"]:checked {
+    background: var(--primary);
+    border-color: var(--primary);
+}
+
+.checkbox-wrapper input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 1px;
+    width: 4px;
+    height: 9px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+.version-card:hover .checkbox-wrapper input[type="checkbox"] {
+    border-color: var(--primary-light);
+}
+
+/* Adjust card layout for checkbox */
+.version-info {
+    gap: 0.75rem;
 }

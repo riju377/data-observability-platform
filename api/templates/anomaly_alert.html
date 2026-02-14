@@ -327,6 +327,64 @@
             margin-top: 8px;
             font-family: 'SF Mono', 'Consolas', monospace;
         }
+
+        /* Schema Diff Badge */
+        .diff-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .diff-table th {
+            text-align: left;
+            padding: 8px 12px;
+            border-bottom: 2px solid #e2e8f0;
+            color: #64748b;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .diff-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+            vertical-align: top;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-added {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        .badge-removed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .badge-changed {
+            background: #ffedd5;
+            color: #9a3412;
+        }
+
+        .badge-info {
+            background: #e0f2fe;
+            color: #075985;
+        }
+
+        .diff-col-name {
+            font-weight: 600;
+            font-family: 'SF Mono', 'Consolas', monospace;
+        }
     </style>
 </head>
 
@@ -370,8 +428,43 @@
                     <p class="description-text">{{ description }}</p>
                 </div>
 
-                <!-- Expected vs Actual -->
-                {% if expected_value and actual_value %}
+                <!-- Schema Change Detail (if applicable) -->
+                {% if actual_value_obj and actual_value_obj.diff %}
+                <div class="section">
+                    <h3 class="section-title">Schema Changes</h3>
+                    <table class="diff-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 80px;">Action</th>
+                                <th>Column</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in actual_value_obj.diff %}
+                            <tr>
+                                <td>
+                                    {% if item.action == 'COLUMN_ADDED' %}
+                                    <span class="badge badge-added">Added</span>
+                                    {% elif item.action == 'COLUMN_REMOVED' %}
+                                    <span class="badge badge-removed">Removed</span>
+                                    {% elif item.action == 'TYPE_CHANGED' %}
+                                    <span class="badge badge-changed">Type</span>
+                                    {% elif 'NULLABILITY' in item.action %}
+                                    <span class="badge badge-info">Null</span>
+                                    {% else %}
+                                    <span class="badge badge-info">Change</span>
+                                    {% endif %}
+                                </td>
+                                <td class="diff-col-name">{{ item.column }}</td>
+                                <td>{{ item.details }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% elif expected_value and actual_value %}
+                <!-- Standard Expected vs Actual (Hidden for Schema Changes that have diffs) -->
                 <div class="section">
                     <h3 class="section-title">Expected vs Actual</h3>
                     <div class="compare-grid">

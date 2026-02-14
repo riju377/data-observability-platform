@@ -136,6 +136,14 @@ class EmailProvider(AlertProvider):
         detected_at = anomaly.get('detected_at', datetime.now().isoformat())
         dataset_name = anomaly.get('dataset_name', 'Unknown')
 
+        # Extract raw objects for logic in template
+        actual_val_raw = anomaly.get('actual_value', {})
+        expected_val_raw = anomaly.get('expected_value', {})
+        
+        # Unwrap "value" wrapper if present (AlertService wraps it)
+        actual_obj = actual_val_raw.get('value') if isinstance(actual_val_raw, dict) else actual_val_raw
+        expected_obj = expected_val_raw.get('value') if isinstance(expected_val_raw, dict) else expected_val_raw
+
         return template.render(
             severity=anomaly.get('severity', 'INFO'),
             dataset_name=dataset_name,
@@ -145,6 +153,9 @@ class EmailProvider(AlertProvider):
             description=anomaly.get('description', 'No description available'),
             expected_value=json.dumps(anomaly.get('expected_value', {}), indent=2),
             actual_value=json.dumps(anomaly.get('actual_value', {}), indent=2),
+            # Pass structured objects for advanced rendering (e.g. schema diffs)
+            actual_value_obj=actual_obj,
+            expected_value_obj=expected_obj,
             anomaly_id=anomaly.get('id', 'unknown'),
             downstream_count=downstream_count,
             dashboard_url=self.dashboard_url,

@@ -7,7 +7,7 @@ The Data Observability Platform automatically captures lineage, schema, metrics,
 ### Prerequisites
 
 - **Apache Spark 3.5+** installed and available on your PATH
-- **The assembly JAR** built from this project (`data-observability-platform-assembly-1.1.0.jar`)
+- **The assembly JAR** built from this project (`data-observability-platform-assembly-1.4.0.jar`)
 - **A running API server** (FastAPI backend + PostgreSQL)
 
 Build the assembly JAR if you have not already:
@@ -16,7 +16,7 @@ Build the assembly JAR if you have not already:
 sbt assembly
 ```
 
-The JAR will be written to `target/scala-2.12/data-observability-platform-assembly-1.1.0.jar`.
+The JAR will be written to `target/scala-2.12/data-observability-platform-assembly-1.4.0.jar`.
 
 Start the API server:
 
@@ -108,7 +108,7 @@ curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:8000/datasets
 spark-submit \
   --class your.MainClass \
   --master "local[*]" \
-  --jars path/to/data-observability-platform-assembly-1.1.0.jar \
+  --jars path/to/data-observability-platform-assembly-1.4.0.jar \
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
   --conf "spark.observability.api.url=http://localhost:8000" \
   --conf "spark.observability.api.key=YOUR_API_KEY" \
@@ -413,7 +413,103 @@ curl -H "Authorization: Bearer $API_KEY" \
 
 ---
 
-## 5. Setting Up Alerts
+## 5. Anomaly Detection
+
+The platform automatically detects statistical anomalies in your data pipelines using 3-sigma (three standard deviations) control limits. Anomaly detection is **partition-aware** and **self-contamination-proof** to ensure accurate baselines.
+
+### How It Works
+
+**1. Partition-Aware Detection**
+
+When your Spark job writes to partitioned datasets (e.g., `s3://bucket/data/country=US/date=2024-01-15/`), the platform:
+- Extracts a `partition_key` by generalizing the path (e.g., `country=US/date=*`)
+- Compares metrics only within the same partition scope
+- Prevents false alerts from comparing small partitions (e.g., India sales) against large partitions (e.g., US sales)
+
+**2. Self-Contamination Prevention**
+
+Historical statistics **exclude the current job** to prevent outliers from inflating their own baseline:
+- Without this: A 10x spike inflates mean and stddev, potentially masking itself
+- With this: Historical baseline remains clean, anomalies are reliably detected
+
+**3. Detection Algorithm**
+
+```
+Upper Control Limit (UCL) = mean + (3 × stddev)
+Lower Control Limit (LCL) = max(0, mean - (3 × stddev))
+
+If current_value > UCL → SPIKE detected
+If current_value < LCL → DROP detected
+```
+
+With 3-sigma, 99.7% of normal data falls within bounds. Only 0.3% false positive rate.
+
+### Anomaly Types Detected
+
+| Type | Severity | Description | Example |
+|------|----------|-------------|---------|
+| **RowCountSpike** | WARNING | Row count exceeds 3σ above mean | 1000 rows vs 100 expected |
+| **RowCountDrop** | CRITICAL | Row count falls 3σ below mean | 10 rows vs 100 expected |
+| **VolumeSpike** | WARNING | Byte size exceeds 3σ above mean | 10GB vs 1GB expected |
+| **VolumeDrop** | CRITICAL | Byte size falls 3σ below mean | 100MB vs 1GB expected |
+| **SchemaChange** | INFO/CRITICAL | Column added/removed/type changed | Breaking vs non-breaking |
+
+### Requirements for Detection
+
+- **Minimum data points**: 5 historical runs in the same partition/scope
+- **Historical window**: Last 30 days (configurable in code)
+- **Exclusions**: Current job, checkpoints, staging paths
+
+### Example Detection Scenario
+
+**Scenario**: Daily ETL writing to `s3://bucket/sales/country=US/date=YYYY-MM-DD/`
+
+**Historical baseline** (last 15 days, country=US partition):
+- Mean row count: 100,000
+- Stddev: 5,000
+- UCL = 100,000 + (3 × 5,000) = 115,000
+- LCL = 100,000 - (3 × 5,000) = 85,000
+
+**Today's run**:
+- Row count: 150,000
+- Result: **RowCountSpike** detected (150k > 115k UCL)
+- Alert dispatched via configured channels
+
+**Why partition-aware matters**:
+- `country=IN` partition might have mean=10,000 rows
+- Without scoping, 15,000 IN rows would trigger false alert (comparing against US baseline)
+- With scoping, each partition has its own baseline
+
+### Querying Detected Anomalies
+
+**List all anomalies:**
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "$API_URL/anomalies?status=OPEN&limit=50"
+```
+
+**Filter by dataset:**
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "$API_URL/anomalies?dataset_name=bronze_taxi_trips&severity=CRITICAL"
+```
+
+**Get anomaly details:**
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  "$API_URL/anomalies/<anomaly-uuid>"
+```
+
+### Anomaly Lifecycle
+
+1. **OPEN** - Detected, alert dispatched (if rules match)
+2. **ALERTED** - Alert successfully sent
+3. **ACKNOWLEDGED** - Team acknowledged (manual via API/UI)
+4. **RESOLVED** - Issue fixed, can include resolution notes
+
+---
+
+## 6. Setting Up Alerts
 
 Alert rules define which anomalies trigger notifications and where those notifications are sent. Each rule matches anomalies by dataset name and severity, then dispatches to a configured channel.
 
@@ -504,47 +600,6 @@ The `dataset_name` field in alert rules supports pattern matching:
 ### Deduplication
 
 The `deduplication_minutes` field prevents alert fatigue. If an alert was already sent for the same rule within the deduplication window, subsequent matching anomalies are recorded as `DEDUPLICATED` in alert history instead of sending another notification.
-
----
-
-## 6. Understanding Anomaly Detection
-
-### How It Works
-
-The platform uses **3-sigma statistical process control** to detect anomalies in row counts:
-
-1. When a new metric is ingested, the system looks at the last **30 days** of historical data for that dataset.
-2. It computes the **mean** and **standard deviation** of row counts.
-3. If the current value falls more than **3 standard deviations** from the mean, it is flagged as an anomaly.
-
-### Requirements
-
-- **Minimum data points:** Detection requires at least **5 historical data points**. No anomalies will be detected before this threshold is reached.
-- The current data point is included in the mean/stddev calculation, which means a single outlier inflates both values. For reliable detection, have at least 15 normal data points before expecting a spike to be caught.
-
-### Anomaly Types
-
-| Type | Severity | Meaning |
-|------|----------|---------|
-| `RowCountSpike` | WARNING | Row count is more than 3 sigma above the mean |
-| `RowCountDrop` | CRITICAL | Row count is more than 3 sigma below the mean |
-
-### Interpreting Results
-
-An anomaly record contains:
-
-- `expected_value` -- The historical mean (what the system expected)
-- `actual_value` -- The observed value
-- `deviation_score` -- How many standard deviations the value is from the mean
-- `description` -- Human-readable explanation
-
-Example: "Row count of 10000 is 5.2 standard deviations above the 30-day mean of 1000 (threshold: 3.0 sigma)"
-
-### Anomaly Status Lifecycle
-
-- `OPEN` -- Newly detected, not yet reviewed
-- `ACKNOWLEDGED` -- Someone is looking into it
-- `RESOLVED` -- Issue has been addressed
 
 ---
 

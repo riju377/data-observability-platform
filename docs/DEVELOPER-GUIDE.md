@@ -54,7 +54,7 @@ sbt assembly
 This compiles the Scala code and produces a fat JAR at:
 
 ```
-target/scala-2.12/data-observability-platform-assembly-1.1.0.jar
+target/scala-2.12/data-observability-platform-assembly-1.4.0.jar
 ```
 
 Spark itself is marked as `provided` and is not bundled into the JAR.
@@ -142,7 +142,7 @@ No special PostgreSQL extensions are required beyond `uuid-ossp` and `pgcrypto`,
 | `database.py` | PostgreSQL connection pooling using psycopg. |
 | `models.py` | Pydantic request/response models. |
 | `alerting.py` | Alert dispatch with strategy pattern. Includes email, Slack, and Microsoft Teams providers. |
-| `services/anomaly_service.py` | 3-sigma anomaly detection. Scoped by partition/job. Requires at least 5 data points. |
+| `services/anomaly_service.py` | Partition-aware 3-sigma anomaly detection for row counts and byte volumes. Excludes current job from historical stats to prevent self-contamination. Scoped by partition_key and job_name. Requires at least 5 data points for reliable detection. |
 | `services/alert_service.py` | Matches alert rules to detected anomalies and dispatches notifications. |
 | `routers/ingest.py` | Metadata ingestion endpoint (`POST /api/v1/ingest/metadata`). Processes incoming data in the background: upserts datasets, lineage edges, and metrics, generalizes paths for partitioning, then triggers anomaly detection. `infer_dataset_type()` checks location patterns (S3, HDFS, etc.) before table type. |
 | `routers/auth.py` | Authentication endpoints: register, login, API key management. |
@@ -163,7 +163,7 @@ No special PostgreSQL extensions are required beyond `uuid-ossp` and `pgcrypto`,
 | `scripts/schema_master.sql` | Master reference containing all 14 tables. Use this when setting up a non-Docker database. |
 | `api/migrations/` | Incremental migration files for schema changes. |
 | `docker-compose.yml` | Defines postgres, jupyter, and minio services. |
-| `build.sbt` | SBT build definition. Organization: `io.github.riju377`, version `1.1.0`, Scala 2.12.18, Spark 3.5.0. |
+| `build.sbt` | SBT build definition. Organization: `io.github.riju377`, version `1.4.0`, Scala 2.12.18, Spark 3.5.0. |
 | `run-demo.sh` | Shell script to run the demo Spark application. |
 
 ---
@@ -218,7 +218,7 @@ spark-submit \
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
   --conf spark.observability.api.url=http://localhost:8000 \
   --conf spark.observability.api.key=obs_live_DEMO_KEY_FOR_TESTING_ONLY \
-  --jars target/scala-2.12/data-observability-platform-assembly-1.1.0.jar \
+  --jars target/scala-2.12/data-observability-platform-assembly-1.4.0.jar \
   your-application.jar
 ```
 
@@ -341,7 +341,7 @@ The API and frontend are started manually (see Initial Setup above).
 The assembly JAR is published to Maven Central under:
 
 ```
-io.github.riju377:data-observability-platform_2.12:1.1.0
+io.github.riju377:data-observability-platform_2.12:1.4.0
 ```
 
 Users can add it as a dependency or download the JAR directly. They configure the listener entirely through `spark-submit --conf` flags and need their own API server running to receive metadata.
@@ -401,7 +401,7 @@ cd client && npm run dev &
 # Run a demo Spark job
 export API_URL=http://localhost:8000
 export API_KEY=obs_live_DEMO_KEY_FOR_TESTING_ONLY
-export JAR_PATH=target/scala-2.12/data-observability-platform-assembly-1.1.0.jar
+export JAR_PATH=target/scala-2.12/data-observability-platform-assembly-1.4.0.jar
 ./run-demo.sh
 
 # Check API health

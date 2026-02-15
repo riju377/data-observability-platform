@@ -53,58 +53,207 @@ A production-grade data observability platform that automatically captures linea
                      +----------------------------------------+
 ```
 
-## Quick Start
+## Usage
 
-### Prerequisites
+### Option 1: Try the Live Demo
 
+The platform is deployed and ready to use:
+
+🌐 **Dashboard**: [https://data-observability-platform.vercel.app](https://data-observability-platform.vercel.app)
+📚 **API Docs**: Contact for API endpoint
+📦 **Spark Listener JAR**: [Download from GitHub Releases](https://github.com/riju377/data-observability-platform/releases)
+
+**Quick start with your Spark jobs:**
+
+1. Download the latest JAR from releases
+2. Add to your spark-submit command:
+   ```bash
+   spark-submit \
+     --jars data-observability-platform-assembly-1.4.0.jar \
+     --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
+     --conf spark.observability.api.url=<API_URL> \
+     --conf spark.observability.api.key=<YOUR_API_KEY> \
+     your-application.jar
+   ```
+3. View lineage, schemas, and anomalies in the dashboard
+
+**Get API credentials:** Contact via GitHub issues for demo access.
+
+---
+
+### Option 2: Self-Hosted Deployment
+
+Deploy the full platform on your own infrastructure.
+
+**Prerequisites:**
 - JDK 11+, Scala 2.12, SBT 1.9+
 - Python 3.9+, Node.js 18+
-- Docker (for PostgreSQL)
-- Apache Spark 3.5 (for running demos)
+- Docker & Docker Compose
+- Apache Spark 3.5+ (for your data pipelines)
+- PostgreSQL 16 (via Docker or managed service)
 
-### 1. Start the database
+**Step 1: Clone the Repository**
 
 ```bash
+git clone https://github.com/riju377/data-observability-platform.git
+cd data-observability-platform
+```
+
+**Step 2: Start the Database**
+
+```bash
+# Using Docker Compose (recommended for local dev)
 docker compose up -d postgres
+
+# Or use your own PostgreSQL instance and update api/database.py
 ```
 
-### 2. Build the Spark listener JAR
+**Step 3: Initialize the Database**
 
 ```bash
-sbt assembly
-# Output: target/scala-2.12/data-observability-platform-assembly-1.1.0.jar
+# Connect to PostgreSQL and run the schema
+docker exec -i <postgres-container-id> psql -U postgres -d observability < scripts/init-db.sql
 ```
 
-### 3. Start the API server
+**Step 4: Configure Environment Variables**
+
+```bash
+# Create .env file in api/ directory
+cat > api/.env << EOF
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=observability
+DATABASE_USER=postgres
+DATABASE_PASSWORD=postgres
+JWT_SECRET_KEY=$(openssl rand -hex 32)
+API_PORT=8000
+EOF
+```
+
+**Step 5: Start the API Backend**
 
 ```bash
 cd api
-python -m venv venv && source venv/bin/activate
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
-# API at http://localhost:8000, docs at http://localhost:8000/docs
+# API running at http://localhost:8000
+# Swagger docs at http://localhost:8000/docs
 ```
 
-### 4. Start the frontend
+**Step 6: Build the Spark Listener JAR**
+
+```bash
+sbt assembly
+# Output: target/scala-2.12/data-observability-platform-assembly-1.4.0.jar
+```
+
+**Step 7: Start the Frontend (Optional)**
 
 ```bash
 cd client
-npm install && npm run dev
-# UI at http://localhost:3000
+npm install
+npm run dev
+# Dashboard at http://localhost:5173
 ```
 
-### 5. Run a demo
+**Step 8: Create API Key for Spark Jobs**
 
 ```bash
-export API_KEY="obs_live_DEMO_KEY_FOR_TESTING_ONLY"
+# Register a user and organization via API
+curl -X POST http://localhost:8000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@yourcompany.com",
+    "password": "secure_password",
+    "full_name": "Admin User",
+    "organization_name": "Your Company"
+  }'
 
-# Quick smoke test (lineage + schema)
+# Login to get JWT token
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@yourcompany.com",
+    "password": "secure_password"
+  }'
+
+# Create API key (use JWT token from login)
+curl -X POST http://localhost:8000/api-keys \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Spark Production",
+    "scopes": ["ingest"]
+  }'
+```
+
+**Step 9: Configure Your Spark Jobs**
+
+Add the listener to your Spark applications:
+
+```bash
+spark-submit \
+  --jars /path/to/data-observability-platform-assembly-1.4.0.jar \
+  --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
+  --conf spark.observability.api.url=http://your-api-host:8000 \
+  --conf spark.observability.api.key=obs_live_YOUR_API_KEY \
+  your-application.jar
+```
+
+**Step 10: Verify Data Flow**
+
+1. Run a Spark job with the listener configured
+2. Check API logs for incoming metadata: `POST /api/v1/ingest/metadata`
+3. View lineage in dashboard: `http://localhost:5173`
+4. Query via API: `http://localhost:8000/docs`
+
+---
+
+## Production Deployment
+
+For production environments:
+
+**Backend (FastAPI):**
+- Deploy to AWS ECS, Google Cloud Run, or Kubernetes
+- Use managed PostgreSQL (AWS RDS, Google Cloud SQL, Azure Database)
+- Set environment variables via secrets manager
+- Enable HTTPS with SSL certificates
+- Configure CORS with specific origins (remove wildcard)
+
+**Frontend (React):**
+- Deploy to Vercel, Netlify, or S3 + CloudFront
+- Update API base URL in environment config
+
+**Database:**
+- Use connection pooling (PgBouncer recommended)
+- Enable automated backups
+- Monitor query performance
+- Consider read replicas for query endpoints
+
+**Spark Listener JAR:**
+- Upload to S3/GCS bucket for easy distribution
+- Reference in spark-submit via `--jars s3://bucket/path/to/jar`
+- Publish to Maven Central for dependency management
+
+---
+
+## Demo Examples
+
+Run example Spark jobs to see the platform in action:
+
+```bash
+export API_KEY="obs_live_YOUR_API_KEY"
+export API_URL="http://localhost:8000"
+
+# Quick lineage test (creates bronze -> silver -> gold pipeline)
 ./run-quick-test.sh
 
-# Full pipeline with anomaly detection + alerting
+# Full pipeline with anomaly detection
 ./run-demo.sh
 
-# Schema evolution (5 versions)
+# Schema evolution demo (5 version changes)
 ./run-schema-demo.sh
 ```
 
@@ -144,7 +293,6 @@ data-observability-platform/
 | [Architecture Deep-Dive](docs/ARCHITECTURE.md) | Everyone | Full system internals, data flow, database schema, all architectural decisions |
 | [User Guide](docs/USER-GUIDE.md) | End Users | Authentication, spark-submit configuration, API usage, alerting setup |
 | [Developer Guide](docs/DEVELOPER-GUIDE.md) | Contributors | Local setup, database credentials, build process, deployment, contributing |
-| [Interview Guide](docs/INTERVIEW-GUIDE.md) | Author | Technical decisions, interview Q&A, comparisons with alternatives |
 | [API Reference](api/README.md) | API Users | All REST endpoints with request/response examples |
 
 ## Technology Stack

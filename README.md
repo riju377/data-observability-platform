@@ -60,24 +60,21 @@ A production-grade data observability platform that automatically captures linea
 The platform is deployed and ready to use:
 
 🌐 **Dashboard**: [https://data-observability-platform.vercel.app](https://data-observability-platform.vercel.app)
-📚 **API Docs**: Contact for API endpoint
-📦 **Spark Listener JAR**: [Download from GitHub Releases](https://github.com/riju377/data-observability-platform/releases)
 
 **Quick start with your Spark jobs:**
 
-1. Download the latest JAR from releases
-2. Add to your spark-submit command:
+1. **Create an API key** via the dashboard (login required - free account)
+2. **Add the package** to your spark-submit command:
    ```bash
    spark-submit \
-     --jars data-observability-platform-assembly-1.4.0.jar \
+     --packages io.github.riju377:data-observability-platform_2.12:1.4.0 \
      --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
-     --conf spark.observability.api.url=<API_URL> \
      --conf spark.observability.api.key=<YOUR_API_KEY> \
      your-application.jar
    ```
-3. View lineage, schemas, and anomalies in the dashboard
+3. **View results** - Lineage, schemas, and anomalies appear automatically in the dashboard
 
-**Get API credentials:** Contact via GitHub issues for demo access.
+**Note:** The API URL is pre-configured for the hosted version. Just add your API key and you're ready to go!
 
 ---
 

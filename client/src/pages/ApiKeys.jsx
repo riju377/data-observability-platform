@@ -567,11 +567,6 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "$
                   <ChevronRight size={14} className="config-arrow" />
                   <code className="config-val">{keys.length > 0 ? keys[0].key_prefix + '...' : '<YOUR_API_KEY>'}</code>
                 </div>
-                <div className="config-row config-row-optional">
-                  <code className="config-key">spark.observability.api.url</code>
-                  <ChevronRight size={14} className="config-arrow" />
-                  <code className="config-val">Optional — defaults to production API</code>
-                </div>
               </div>
             </div>
           </div>

@@ -16,7 +16,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_org_name ON jobs(organization_id, job_name);
 
 -- 2. Add job_id_ref column to job_executions (temporary name to avoid conflict with existing job_id string)
-ALTER TABLE job_executions ADD COLUMN IF NOT EXISTS job_definition_id UUID REFERENCES jobs(id);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'job_executions') THEN
+        ALTER TABLE job_executions ADD COLUMN IF NOT EXISTS job_definition_id UUID REFERENCES jobs(id);
+    END IF;
+END $$;
 
 -- 3. Backfill jobs from existing job_executions (Best effort)
 -- We assume 'default' organization for migration if not strictly known, but we can try to infer or leave null.
@@ -25,6 +30,11 @@ ALTER TABLE job_executions ADD COLUMN IF NOT EXISTS job_definition_id UUID REFER
 
 -- 4. Make application_id the main identifier for job_executions
 -- We need to ensure application_id is present and used for uniqueness
-CREATE INDEX IF NOT EXISTS idx_job_executions_app_id ON job_executions(application_id);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'job_executions') THEN
+        CREATE INDEX IF NOT EXISTS idx_job_executions_app_id ON job_executions(application_id);
+    END IF;
+END $$;
 -- We can't easily convert the Primary Key without dropping the old one, but we can add a unique constraint
 -- ADD CONSTRAINT unique_app_execution UNIQUE (application_id); -- This might fail if duplicates exist or nulls.

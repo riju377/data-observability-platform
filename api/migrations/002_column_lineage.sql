@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_col_lineage_job
 -- ============================================
 
 -- Get all upstream columns (what feeds into this column)
-DROP FUNCTION IF EXISTS get_upstream_columns(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS get_upstream_columns(character varying, character varying) CASCADE;
 CREATE OR REPLACE FUNCTION get_upstream_columns(
     p_dataset_name VARCHAR,
     p_column_name VARCHAR
@@ -97,7 +97,7 @@ $$ LANGUAGE SQL;
 
 
 -- Get all downstream columns (what uses this column)
-DROP FUNCTION IF EXISTS get_downstream_columns(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS get_downstream_columns(character varying, character varying) CASCADE;
 CREATE OR REPLACE FUNCTION get_downstream_columns(
     p_dataset_name VARCHAR,
     p_column_name VARCHAR

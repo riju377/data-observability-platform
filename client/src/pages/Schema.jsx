@@ -316,7 +316,6 @@ function Schema() {
                     {version.change_type && (
                       <div className="change-description">
                         <span className="change-badge">{version.change_type}</span>
-                        <span className="change-badge">{version.change_type}</span>
                       </div>
                     )}
 

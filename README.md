@@ -69,9 +69,26 @@ The platform is deployed and ready to use:
    spark-submit \
      --packages io.github.riju377:data-observability-platform_2.12:1.4.0 \
      --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
+     --conf spark.sql.queryExecutionListeners=com.observability.listener.ObservabilityListener \
      --conf spark.observability.api.key=<YOUR_API_KEY> \
      your-application.jar
    ```
+   
+   **Optional Configuration:**
+   
+   | Property | Description | Default |
+   |---|---|---|
+   | `spark.observability.job.name` | Custom name for your job (overrides Spark app name) | (Spark App Name) |
+   | `spark.observability.api.connectTimeoutMs` | Connection timeout in milliseconds | 5000 |
+   | `spark.observability.api.readTimeoutMs` | Read timeout in milliseconds | 30000 |
+   
+   **Optional Configuration:**
+   
+   | Property | Description | Default |
+   |---|---|---|
+   | `spark.observability.job.name` | Custom name for your job (overrides Spark app name) | (Spark App Name) |
+   | `spark.observability.api.connectTimeoutMs` | Connection timeout in milliseconds | 5000 |
+   | `spark.observability.api.readTimeoutMs` | Read timeout in milliseconds | 30000 |
 3. **View results** - Lineage, schemas, and anomalies appear automatically in the dashboard
 
 **Note:** The API URL is pre-configured for the hosted version. Just add your API key and you're ready to go!
@@ -194,6 +211,7 @@ Add the listener to your Spark applications:
 spark-submit \
   --jars /path/to/data-observability-platform-assembly-1.4.0.jar \
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \
+  --conf spark.sql.queryExecutionListeners=com.observability.listener.ObservabilityListener \
   --conf spark.observability.api.url=http://your-api-host:8000 \
   --conf spark.observability.api.key=obs_live_YOUR_API_KEY \
   your-application.jar

@@ -49,14 +49,15 @@ function ApiKeys() {
   }, []); // Run once on mount
 
   // Fetch latest version from Maven Central
-  const [latestVersion, setLatestVersion] = useState('1.3.0'); // Fallback default
+  const [latestVersion, setLatestVersion] = useState('1.5.0'); // Fallback default
 
   const fetchLatestVersion = async () => {
     try {
-      // Fetch maven-metadata.xml via public CORS proxy (allorigins.win)
+      // Fetch maven-metadata.xml via public CORS proxy (codetabs.com)
+      // allorigins.win was unreliable/slow from some environments
       const metadataUrl =
         "https://repo1.maven.org/maven2/io/github/riju377/data-observability-platform_2.12/maven-metadata.xml";
-      const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(metadataUrl);
+      const proxyUrl = "https://api.codetabs.com/v1/proxy/?quest=" + metadataUrl;
 
       const response = await fetch(proxyUrl);
       if (response.ok) {
@@ -70,7 +71,7 @@ function ApiKeys() {
         }
       }
     } catch (e) {
-      console.warn('Failed to fetch latest version via allorigins', e);
+      console.warn('Failed to fetch latest version via proxy', e);
     }
   };
 
@@ -239,6 +240,7 @@ function ApiKeys() {
                   <pre>{`spark-submit \\
   --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.sql.queryExecutionListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${createdKey.key} \\
   your-application.jar`}</pre>
                   <button
@@ -248,6 +250,7 @@ function ApiKeys() {
                         `spark-submit \\
   --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.sql.queryExecutionListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${createdKey.key} \\
   your-application.jar`,
                         'example',
@@ -485,6 +488,7 @@ function ApiKeys() {
                     <pre>{`spark-submit \\
   --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.sql.queryExecutionListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=<YOUR_API_KEY> \\
   your-application.jar`}</pre>
                     <button
@@ -494,6 +498,7 @@ function ApiKeys() {
                           `spark-submit \\
   --packages io.github.riju377:data-observability-platform_2.12:${latestVersion} \\
   --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.sql.queryExecutionListeners=com.observability.listener.ObservabilityListener \\
   --conf spark.observability.api.key=${keys.length > 0 ? keys[0].key_prefix + '...' : '<YOUR_API_KEY>'} \\
   your-application.jar`,
                           'guide-spark',
@@ -563,10 +568,40 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "$
                   <code className="config-val">com.observability.listener.ObservabilityListener</code>
                 </div>
                 <div className="config-row">
+                  <code className="config-key">spark.sql.queryExecutionListeners</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">com.observability.listener.ObservabilityListener</code>
+                </div>
+                <div className="config-row">
+                  <code className="config-key">spark.sql.queryExecutionListeners</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">com.observability.listener.ObservabilityListener</code>
+                </div>
+
+                <div className="config-row">
                   <code className="config-key">spark.observability.api.key</code>
                   <ChevronRight size={14} className="config-arrow" />
                   <code className="config-val">{keys.length > 0 ? keys[0].key_prefix + '...' : '<YOUR_API_KEY>'}</code>
                 </div>
+                <div className="config-row optional">
+                  <span className="optional-label">Optional</span>
+                </div>
+                <div className="config-row">
+                  <code className="config-key">spark.observability.job.name</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">"My Job Name"</code>
+                </div>
+                <div className="config-row">
+                  <code className="config-key">spark.observability.api.connectTimeoutMs</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">5000</code>
+                </div>
+                <div className="config-row">
+                  <code className="config-key">spark.observability.api.readTimeoutMs</code>
+                  <ChevronRight size={14} className="config-arrow" />
+                  <code className="config-val">30000</code>
+                </div>
+
               </div>
             </div>
           </div>
@@ -607,7 +642,7 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "$
           <strong>Coming Soon:</strong> Usage tracking will show when each key was last used.
         </span>
       </div>
-    </div>
+    </div >
   );
 }
 

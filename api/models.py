@@ -508,73 +508,79 @@ class HealthResponse(BaseModel):
 # Job Execution & Stage Metrics Models
 # ============================================
 
-class JobExecution(BaseModel):
-    """Spark job execution record"""
+class Job(BaseModel):
+    """Denormalized Job Model (replacing JobExecution)"""
     id: str
-    job_id: str
-    job_name: Optional[str] = None
-    application_id: Optional[str] = None
-    started_at: Optional[datetime] = None
-    ended_at: Optional[datetime] = None
+    organization_id: Optional[str] = None
+    job_name: str
+    description: Optional[str] = None
     status: Optional[str] = None
-    error_message: Optional[str] = None
-    total_tasks: Optional[int] = None
-    failed_tasks: Optional[int] = None
-    shuffle_read_bytes: Optional[int] = None
-    shuffle_write_bytes: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
-    duration_ms: Optional[int] = None
-
-
-class StageMetrics(BaseModel):
-    """Per-stage metrics for a job execution"""
-    id: str
-    job_id: str
-    application_id: Optional[str] = None
-    stage_id: int
-    stage_name: Optional[str] = None
-    stage_attempt_id: Optional[int] = None
-    num_tasks: Optional[int] = None
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
-    duration_ms: Optional[int] = None
-
-    # I/O
-    input_bytes: Optional[int] = None
-    input_records: Optional[int] = None
-    output_bytes: Optional[int] = None
-    output_records: Optional[int] = None
-
-    # Shuffle Read
-    shuffle_read_bytes: Optional[int] = None
-    shuffle_read_records: Optional[int] = None
-    shuffle_remote_bytes_read: Optional[int] = None
-    shuffle_local_bytes_read: Optional[int] = None
-    shuffle_remote_bytes_read_to_disk: Optional[int] = None
-    shuffle_fetch_wait_time_ms: Optional[int] = None
-    shuffle_remote_blocks_fetched: Optional[int] = None
-    shuffle_local_blocks_fetched: Optional[int] = None
-
-    # Shuffle Write
-    shuffle_write_bytes: Optional[int] = None
-    shuffle_write_records: Optional[int] = None
-    shuffle_write_time_ns: Optional[int] = None
-
-    # Compute
-    executor_run_time_ms: Optional[int] = None
-    executor_cpu_time_ns: Optional[int] = None
-    jvm_gc_time_ms: Optional[int] = None
-    executor_deserialize_time_ms: Optional[int] = None
-    executor_deserialize_cpu_time_ns: Optional[int] = None
-    result_serialization_time_ms: Optional[int] = None
-    result_size_bytes: Optional[int] = None
-
-    # Memory / Spill
-    memory_bytes_spilled: Optional[int] = None
-    disk_bytes_spilled: Optional[int] = None
-    peak_execution_memory: Optional[int] = None
-
+    last_execution_id: Optional[str] = None
+    execution_metrics: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    # Computed fields for backward compatibility
+    @property
+    def duration_ms(self) -> Optional[int]:
+        if self.started_at and self.ended_at:
+            return int((self.ended_at - self.started_at).total_seconds() * 1000)
+        return None
+
+    @property
+    def application_id(self) -> Optional[str]:
+        if self.metadata and isinstance(self.metadata, dict):
+            # Casting to str or checking if key exists
+            return self.metadata.get("application_id")
+        return None
+
+    @property
+    def job_id(self) -> str:
+        # Map last_execution_id to job_id for frontend compatibility
+        return self.last_execution_id or self.id
+
+    @property
+    def total_tasks(self) -> Optional[int]:
+        if self.execution_metrics and isinstance(self.execution_metrics, dict):
+            return self.execution_metrics.get("totalTasks")
+        return None
+
+    @property
+    def failed_tasks(self) -> Optional[int]:
+        if self.execution_metrics and isinstance(self.execution_metrics, dict):
+            return self.execution_metrics.get("failedTasks")
+        return None
+
+    @property
+    def shuffle_read_bytes(self) -> Optional[int]:
+        if self.execution_metrics and isinstance(self.execution_metrics, dict):
+            return self.execution_metrics.get("shuffleReadBytes")
+        return None
+
+    @property
+    def shuffle_write_bytes(self) -> Optional[int]:
+        if self.execution_metrics and isinstance(self.execution_metrics, dict):
+            return self.execution_metrics.get("shuffleWriteBytes")
+        return None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "job-uuid-123",
+                "job_name": "Daily ETL",
+                "status": "SUCCESS",
+                "started_at": "2024-01-20T10:00:00",
+                "ended_at": "2024-01-20T10:05:00",
+                "last_execution_id": "spark-app-123",
+                "execution_metrics": {
+                    "totalTasks": 100,
+                    "shuffleReadBytes": 1024000
+                }
+            }
+        }
 
 
 class ChannelType(str, Enum):

@@ -3,11 +3,11 @@
 
 -- Add new columns
 ALTER TABLE dataset_metrics 
-ADD COLUMN partition_key TEXT,
-ADD COLUMN job_name TEXT;
+ADD COLUMN IF NOT EXISTS partition_key TEXT,
+ADD COLUMN IF NOT EXISTS job_name TEXT;
 
 -- Create index for fast history lookup by scope
-CREATE INDEX idx_metrics_scope ON dataset_metrics (dataset_id, job_name, partition_key);
+CREATE INDEX IF NOT EXISTS idx_metrics_scope ON dataset_metrics (dataset_id, job_name, partition_key);
 
 -- Comment
 COMMENT ON COLUMN dataset_metrics.partition_key IS 'Generalized output path signature (e.g. .../country=US/dt=*)';

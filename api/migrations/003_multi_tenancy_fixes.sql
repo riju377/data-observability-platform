@@ -36,7 +36,11 @@ ALTER TABLE data_quality_rules ADD CONSTRAINT data_quality_rules_org_unique
     UNIQUE(organization_id, dataset_name, column_name, rule_type, name);
 
 -- 6. Recreate all 4 SQL functions with org_id parameter
--- (These use CREATE OR REPLACE so they're safe to re-run)
+-- (These use CREATE OR REPLACE so they're safe to re-run, but we drop old signatures first)
+DROP FUNCTION IF EXISTS get_downstream_datasets(VARCHAR);
+DROP FUNCTION IF EXISTS get_upstream_datasets(VARCHAR);
+DROP FUNCTION IF EXISTS get_upstream_columns(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS get_downstream_columns(VARCHAR, VARCHAR);
 
 CREATE OR REPLACE FUNCTION get_downstream_datasets(dataset_name_param VARCHAR, p_org_id UUID)
 RETURNS TABLE(dataset_name VARCHAR, depth INTEGER) AS $$

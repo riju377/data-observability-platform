@@ -70,6 +70,7 @@ object MetadataPublisher extends LazyLogging {
     inputs: Seq[TableReference],
     outputs: Seq[TableReference],
     queryId: String = "query-" + java.util.UUID.randomUUID().toString.take(8),
+    jobName: Option[String] = None,
     sparkConf: Option[SparkConf] = None
   ): Unit = {
     // Only skip if there are no outputs. Inputs may be empty for
@@ -80,7 +81,7 @@ object MetadataPublisher extends LazyLogging {
     getClient(sparkConf) match {
       case Some(apiClient) =>
         Future {
-          apiClient.publishLineage(inputs, outputs, queryId) match {
+          apiClient.publishLineage(inputs, outputs, queryId, jobName) match {
             case Success(_) =>
               logger.debug(s"Lineage published for query: $queryId")
             case Failure(e) =>
@@ -98,6 +99,10 @@ object MetadataPublisher extends LazyLogging {
     getClient(sparkConf) match {
       case Some(apiClient) =>
         Future {
+          // Log the metadata being published (at least the ID and name)
+          logger.info(s"Publishing schema/metadata for job: ${metadata.jobId}, Name: ${metadata.jobName.getOrElse("unknown")}")
+          logger.info(s"Metadata payload metrics: ${metadata.metrics}")
+          
           apiClient.publishMetadata(metadata) match {
             case Success(_) =>
               logger.debug(s"Metadata published for job: ${metadata.jobId}")
@@ -106,6 +111,7 @@ object MetadataPublisher extends LazyLogging {
           }
         }
       case None =>
+        logger.warn("Skipping metadata publish - no API client available")
     }
   }
 

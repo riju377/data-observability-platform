@@ -1,7 +1,7 @@
 name := "data-observability-platform"
 // Use io.github.yourusername for auto-approved namespace
 organization := "io.github.riju377"
-version := "1.4.0"
+version := "1.5.0"
 scalaVersion := "2.12.18"
 
 // Spark dependencies (marked as "provided" so they're not bundled)

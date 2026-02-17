@@ -25,6 +25,41 @@ def init_db():
                         with open("schema.sql", "r") as f:
                             cur.execute(f.read())
                     
+                    # --- MIGRATION RUNNER ---
+                    print("Checking for migrations...")
+                    # Create migrations table if not exists
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS schema_migrations (
+                            id SERIAL PRIMARY KEY,
+                            version VARCHAR(255) NOT NULL UNIQUE,
+                            applied_at TIMESTAMP DEFAULT NOW()
+                        );
+                    """)
+                    
+                    # Get applied migrations
+                    cur.execute("SELECT version FROM schema_migrations")
+                    applied_migrations = {row[0] for row in cur.fetchall()}
+                    
+                    # Get all SQL files in api/migrations
+                    migration_dir = "migrations"
+                    if os.path.exists(migration_dir):
+                        migration_files = sorted([f for f in os.listdir(migration_dir) if f.endswith(".sql")])
+                        
+                        for migration_file in migration_files:
+                            if migration_file not in applied_migrations:
+                                print(f"Applying migration: {migration_file}")
+                                try:
+                                    with open(os.path.join(migration_dir, migration_file), "r") as f:
+                                        cur.execute(f.read())
+                                    
+                                    cur.execute("INSERT INTO schema_migrations (version) VALUES (%s)", (migration_file,))
+                                    print(f"Successfully applied {migration_file}")
+                                except Exception as e:
+                                    print(f"Failed to apply {migration_file}: {e}")
+                                    raise e
+                    else:
+                        print(f"No migrations directory found at {migration_dir}")
+
                     # Always apply functions (safe because of CREATE OR REPLACE)
                     print("Updating stored functions...")
                     functions_sql = """

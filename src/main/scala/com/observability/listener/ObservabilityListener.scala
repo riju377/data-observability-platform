@@ -135,22 +135,59 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     }
   }
 
+  // ADD THIS: Track accumulated metrics for the entire application
+  private var appMetrics: JobMetrics = JobMetrics()
+  private val appInputs = mutable.Set[TableReference]()
+  private val appOutputs = mutable.Set[TableReference]()
+  
+  // Track the job name/id for the application (from the first job or config)
+  private var appJobName: Option[String] = None
+  private var appApplicationId: Option[String] = None
+
+
   /**
    * Called when the application starts
    * This is an earlier hook than onJobStart, ideal for initialization
    */
   override def onApplicationStart(applicationStart: SparkListenerApplicationStart): Unit = {
-    logger.info(s"Application started: ${applicationStart.appName}")
-    // Try to register as early as possible
+    logger.info(s"Application started: ${applicationStart.appName} (ID: ${applicationStart.appId.getOrElse("unknown")})")
+    appJobName = Some(applicationStart.appName)
+    appApplicationId = applicationStart.appId
     ensureQueryListenerRegistered()
   }
 
   /**
    * Called when the application ends.
-   * Drains any pending async API calls before the JVM exits.
+   * Publishes the final aggregated metadata for the entire application run.
    */
   override def onApplicationEnd(applicationEnd: SparkListenerApplicationEnd): Unit = {
-    logger.info("Application ending, draining pending publish calls")
+    logger.info("Application ending, publishing aggregated metrics")
+    
+    val finalMetrics = synchronized { appMetrics }
+    logger.info(s"Final application metrics: $finalMetrics")
+    
+    // Create a composite metadata object for the entire application
+    // We use "app-<appId>" as the jobId for this aggregate record
+    val appMetadata = JobMetadata(
+      jobId = appApplicationId.getOrElse("unknown-app"),
+      jobName = appJobName,
+      applicationId = appApplicationId,
+      startTime = new Timestamp(applicationEnd.time), // We don't have start time handy here easily without tracking, assuming end-is-end
+      endTime = Some(new Timestamp(applicationEnd.time)), 
+      status = JobStatus.Success, // We assume success if we got here, or simple completion
+      errorMessage = None,
+      inputTables = appInputs.toSeq,
+      outputTables = appOutputs.toSeq,
+      metrics = finalMetrics
+    )
+    
+    try {
+      publishMetadata(appMetadata)
+    } catch {
+      case e: Exception =>
+        logger.error(s"Failed to publish application metrics: ${e.getMessage}")
+    }
+    
     MetadataPublisher.shutdown()
   }
 
@@ -163,7 +200,12 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     // CRITICAL: Self-register as QueryExecutionListener on first job
     ensureQueryListenerRegistered()
 
-    val jobName: Option[String] = Option(jobStart.properties.getProperty("spark.job.description"))
+    // Priority order for job name:
+    // 1. spark.observability.job.name (Custom config for multi-region/multi-tenant jobs)
+    // 2. spark.job.description (Standard Spark property)
+    // 3. spark.app.name (Application-level name)
+    val jobName: Option[String] = Option(jobStart.properties.getProperty("spark.observability.job.name"))
+                                    .orElse(Option(jobStart.properties.getProperty("spark.job.description")))
                                     .orElse(Option(jobStart.properties.getProperty("callSite.short")))
                                     .orElse {
                                       for {
@@ -174,6 +216,10 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
                                     .orElse(Option(jobStart.properties.getProperty("spark.app.name")))
 
     val applicationId : Option[String] = Option(jobStart.properties.getProperty("spark.app.id"))
+    
+    // Capture app-level info if not already set
+    if (appJobName.isEmpty) appJobName = jobName
+    if (appApplicationId.isEmpty) appApplicationId = applicationId
 
     logger.info(s"Job ${jobStart.jobId} started: ${jobName.getOrElse("unnamed")}")
 
@@ -220,34 +266,22 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
 
     activeJobs.get(jobEnd.jobId) match {
       case Some(metadata) =>
-        // Determine if job succeeded
-        // Note: JobFailed is private in Spark 3.5, so we check for JobSucceeded
-        val (success, errorMessage) = jobEnd.jobResult match {
-          case JobSucceeded => (true, None)
-          case _ => (false, Some(s"Job failed: ${jobEnd.jobResult.toString}"))
-        }
-
         // Get accumulated metrics for this job
         val finalMetrics = jobMetrics.getOrElse(jobEnd.jobId, JobMetrics())
 
         // Get accumulated lineage for this job
         val (inputs, outputs) = jobLineage.getOrElse(jobEnd.jobId, (Seq.empty, Seq.empty))
+        
+        
+        // Aggregate into Application-Level Metrics and Lineage
+        synchronized {
+          appMetrics = combinedMetrics(appMetrics, finalMetrics)
+          logger.info(s"Job ${jobEnd.jobId} metrics aggregated. Current App Metrics: $appMetrics")
+          appInputs ++= inputs
+          appOutputs ++= outputs
+        }
 
-        logger.debug(s"Job ${jobEnd.jobId} lineage: ${inputs.size} inputs, ${outputs.size} outputs")
-
-        // Update metadata with metrics AND lineage
-        val completedMetadata = metadata.copy(
-          endTime = Some(new Timestamp(jobEnd.time)),
-          status = if (success) JobStatus.Success else JobStatus.Failed,
-          errorMessage = errorMessage,
-          metrics = finalMetrics,
-          inputTables = inputs,
-          outputTables = outputs
-        )
-
-
-        // Publish metadata + metrics to backend API (async, non-blocking)
-        publishMetadata(completedMetadata)
+        logger.debug(s"Job ${jobEnd.jobId} lineage: ${inputs.size} inputs, ${outputs.size} outputs (Added to App Aggregate)")
 
         // Clean up
         activeJobs.remove(jobEnd.jobId)
@@ -304,6 +338,7 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     }
 
   private def combinedMetrics(m1: JobMetrics, m2: JobMetrics): JobMetrics = {
+    logger.debug(s"Combining metrics: M1=$m1, M2=$m2")
     JobMetrics(
       // Volume metrics
       rowsRead = sumOpt(m1.rowsRead, m2.rowsRead),
@@ -355,121 +390,50 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
    */
   override def onStageCompleted(stageCompleted: SparkListenerStageCompleted): Unit = {
     val stageInfo = stageCompleted.stageInfo
+    val metrics = stageInfo.taskMetrics
 
-    // Calculate duration
-    val duration = for {
-      start <- stageInfo.submissionTime
-      end <- stageInfo.completionTime
-    } yield end - start
+    if (metrics != null) {
+      val stageMetrics = JobMetrics(
+        rowsRead = Some(metrics.inputMetrics.recordsRead),
+        rowsWritten = Some(metrics.outputMetrics.recordsWritten),
+        bytesRead = Some(metrics.inputMetrics.bytesRead),
+        bytesWritten = Some(metrics.outputMetrics.bytesWritten),
+        executionTimeMs = Some(metrics.executorRunTime),
+        totalTasks = Some(stageInfo.numTasks),
+        failedTasks = stageInfo.failureReason.map(_ => 1).orElse(Some(0)),
+        shuffleReadBytes = Some(metrics.shuffleReadMetrics.totalBytesRead),
+        shuffleWriteBytes = Some(metrics.shuffleWriteMetrics.bytesWritten),
+        executorCpuTimeNs = Some(metrics.executorCpuTime),
+        jvmGcTimeMs = Some(metrics.jvmGCTime),
+        executorDeserializeTimeMs = Some(metrics.executorDeserializeTime),
+        executorDeserializeCpuTimeNs = Some(metrics.executorDeserializeCpuTime),
+        resultSerializationTimeMs = Some(metrics.resultSerializationTime),
+        resultSizeBytes = Some(metrics.resultSize),
+        memoryBytesSpilled = Some(metrics.memoryBytesSpilled),
+        diskBytesSpilled = Some(metrics.diskBytesSpilled),
+        peakExecutionMemory = Some(metrics.peakExecutionMemory),
+        shuffleRemoteBytesRead = Some(metrics.shuffleReadMetrics.remoteBytesRead),
+        shuffleLocalBytesRead = Some(metrics.shuffleReadMetrics.localBytesRead),
+        shuffleRemoteBytesReadToDisk = Some(metrics.shuffleReadMetrics.remoteBytesReadToDisk),
+        shuffleFetchWaitTimeMs = Some(metrics.shuffleReadMetrics.fetchWaitTime),
+        shuffleRecordsRead = Some(metrics.shuffleReadMetrics.recordsRead),
+        shuffleRemoteBlocksFetched = Some(metrics.shuffleReadMetrics.remoteBlocksFetched),
+        shuffleLocalBlocksFetched = Some(metrics.shuffleReadMetrics.localBlocksFetched),
+        shuffleWriteTimeNs = Some(metrics.shuffleWriteMetrics.writeTime),
+        shuffleRecordsWritten = Some(metrics.shuffleWriteMetrics.recordsWritten)
+      )
 
-    // Extract all metrics from accumulables
-    val acc = stageInfo.accumulables
-
-    // I/O metrics
-    val rowsRead = getAccumulatorValue(acc, "number of input")
-    val rowsWritten = getAccumulatorValue(acc, "number of output")
-    val bytesRead = getAccumulatorValue(acc, "input.bytesRead")
-    val bytesWritten = getAccumulatorValue(acc, "output.bytesWritten")
-
-    // Compute metrics
-    val executorRunTime = getAccumulatorValue(acc, "executorRunTime")
-    val executorCpuTime = getAccumulatorValue(acc, "executorCpuTime")
-    val jvmGcTime = getAccumulatorValue(acc, "jvmGCTime")
-    val executorDeserializeTime = getAccumulatorValue(acc, "executorDeserializeTime")
-      .filterNot(_ => acc.values.exists(_.name.exists(_.contains("executorDeserializeCpuTime"))))
-      .orElse(getAccumulatorValue(acc, "executorDeserializeTime"))
-    val executorDeserializeCpuTime = getAccumulatorValue(acc, "executorDeserializeCpuTime")
-    val resultSerializationTime = getAccumulatorValue(acc, "resultSerializationTime")
-    val resultSize = getAccumulatorValue(acc, "resultSize")
-
-    // Memory / Spill
-    val memoryBytesSpilled = getAccumulatorValue(acc, "memoryBytesSpilled")
-    val diskBytesSpilled = getAccumulatorValue(acc, "diskBytesSpilled")
-    val peakExecutionMemory = getAccumulatorValue(acc, "peakExecutionMemory")
-
-    // Shuffle read (detailed)
-    val shuffleRemoteBytesRead = getAccumulatorValue(acc, "shuffle.read.remoteBytesRead")
-    val shuffleLocalBytesRead = getAccumulatorValue(acc, "shuffle.read.localBytesRead")
-    val shuffleRemoteBytesReadToDisk = getAccumulatorValue(acc, "shuffle.read.remoteBytesReadToDisk")
-    val shuffleFetchWaitTime = getAccumulatorValue(acc, "shuffle.read.fetchWaitTime")
-    val shuffleRecordsRead = getAccumulatorValue(acc, "shuffle.read.recordsRead")
-    val shuffleRemoteBlocksFetched = getAccumulatorValue(acc, "shuffle.read.remoteBlocksFetched")
-    val shuffleLocalBlocksFetched = getAccumulatorValue(acc, "shuffle.read.localBlocksFetched")
-    val shuffleReadBytes = shuffleLocalBytesRead.map(_ + shuffleRemoteBytesRead.getOrElse(0L))
-      .orElse(shuffleRemoteBytesRead)
-
-    // Shuffle write (detailed)
-    val shuffleWriteBytes = getAccumulatorValue(acc, "shuffle.write.bytesWritten")
-    val shuffleWriteTime = getAccumulatorValue(acc, "shuffle.write.writeTime")
-    val shuffleRecordsWritten = getAccumulatorValue(acc, "shuffle.write.recordsWritten")
-
-    stageToJob.get(stageInfo.stageId) match {
-      case Some(jobId) =>
-
-        val stageMetrics = JobMetrics(
-          rowsRead = rowsRead,
-          rowsWritten = rowsWritten,
-          bytesRead = bytesRead,
-          bytesWritten = bytesWritten,
-          executionTimeMs = executorRunTime,
-          totalTasks = Some(stageInfo.numTasks),
-          failedTasks = stageInfo.failureReason.map(_ => 1).orElse(Some(0)),
-          shuffleReadBytes = shuffleReadBytes,
-          shuffleWriteBytes = shuffleWriteBytes,
-          executorCpuTimeNs = executorCpuTime,
-          jvmGcTimeMs = jvmGcTime,
-          executorDeserializeTimeMs = executorDeserializeTime,
-          executorDeserializeCpuTimeNs = executorDeserializeCpuTime,
-          resultSerializationTimeMs = resultSerializationTime,
-          resultSizeBytes = resultSize,
-          memoryBytesSpilled = memoryBytesSpilled,
-          diskBytesSpilled = diskBytesSpilled,
-          peakExecutionMemory = peakExecutionMemory,
-          shuffleRemoteBytesRead = shuffleRemoteBytesRead,
-          shuffleLocalBytesRead = shuffleLocalBytesRead,
-          shuffleRemoteBytesReadToDisk = shuffleRemoteBytesReadToDisk,
-          shuffleFetchWaitTimeMs = shuffleFetchWaitTime,
-          shuffleRecordsRead = shuffleRecordsRead,
-          shuffleRemoteBlocksFetched = shuffleRemoteBlocksFetched,
-          shuffleLocalBlocksFetched = shuffleLocalBlocksFetched,
-          shuffleWriteTimeNs = shuffleWriteTime,
-          shuffleRecordsWritten = shuffleRecordsWritten
-        )
-
-        val currentMetrics = jobMetrics.getOrElse(jobId, JobMetrics())
-        val updatedMetrics = combinedMetrics(currentMetrics, stageMetrics)
-        jobMetrics.put(jobId, updatedMetrics)
-
-        // Publish stage-level metrics to DB
-        // DISABLED: Stage metrics insertion disabled
-        /*
-        try {
-          MetadataPublisher.publishStageMetrics(
-            jobId = jobId.toString,
-            applicationId = activeJobs.get(jobId).flatMap(_.applicationId),
-            stageId = stageInfo.stageId,
-            stageName = Some(stageInfo.name),
-            stageAttemptId = stageInfo.attemptNumber(),
-            numTasks = stageInfo.numTasks,
-            startedAt = stageInfo.submissionTime.map(t => new Timestamp(t)),
-            endedAt = stageInfo.completionTime.map(t => new Timestamp(t)),
-            durationMs = duration,
-            metrics = stageMetrics,
-            sparkConf = sparkConf
-          )
-        } catch {
-          case e: Exception =>
-            logger.error(s"Failed to publish stage metrics: ${e.getMessage}")
-        }
-        */
-
-        logger.debug(s"  Accumulated job metrics: $updatedMetrics")
-
-      case None =>
-        logger.warn(s"Stage ${stageInfo.stageId} not associated with any job!")
+      stageToJob.get(stageInfo.stageId) match {
+        case Some(jobId) =>
+          val currentMetrics = jobMetrics.getOrElse(jobId, JobMetrics())
+          val updatedMetrics = combinedMetrics(currentMetrics, stageMetrics)
+          jobMetrics.put(jobId, updatedMetrics)
+          logger.info(s"  Stage ${stageInfo.stageId} completed. Mode: TaskMetrics. Jobs: $jobId. RowsRead: ${metrics.inputMetrics.recordsRead}")
+        case None =>
+          logger.warn(s"Stage ${stageInfo.stageId} not associated with any job!")
+      }
     }
   }
-
 
   /**
    * Called when a SQL query execution succeeds
@@ -533,7 +497,7 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     // Publish table-level lineage IMMEDIATELY (don't wait for job end)
     if (outputTables.nonEmpty) {
       try {
-        MetadataPublisher.publishLineageOnly(inputTables, outputTables, queryId, sparkConf)
+        MetadataPublisher.publishLineageOnly(inputTables, outputTables, queryId, appJobName, sparkConf)
       } catch {
         case e: Exception =>
           logger.error(s"Failed to publish table lineage from onSuccess: ${e.getMessage}")

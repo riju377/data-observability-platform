@@ -61,13 +61,17 @@ CREATE INDEX IF NOT EXISTS idx_alert_rules_channel ON alert_rules(channel_type);
 
 -- Sample alert rules
 -- 1. Critical Email Alert
-INSERT INTO alert_rules (name, description, severity, channel_type, channel_config) VALUES
-('Critical Anomalies (Email)', 'Email alert on all CRITICAL severity anomalies', 'CRITICAL', 'EMAIL',
- '{"email_to": ["your-email@example.com"], "subject_template": "[CRITICAL] Data Anomaly: {dataset_name}"}'::jsonb)
-ON CONFLICT DO NOTHING;
+INSERT INTO alert_rules (name, description, severity, channel_type, channel_config)
+SELECT 'Critical Anomalies (Email)', 'Email alert on all CRITICAL severity anomalies', 'CRITICAL', 'EMAIL',
+ '{"email_to": ["your-email@example.com"], "subject_template": "[CRITICAL] Data Anomaly: {dataset_name}"}'::jsonb
+WHERE NOT EXISTS (
+    SELECT 1 FROM alert_rules WHERE name = 'Critical Anomalies (Email)'
+);
 
 -- 2. Sales Team Slack Alert
-INSERT INTO alert_rules (name, description, dataset_name, severity, channel_type, channel_config) VALUES
-('Sales Alerts (Slack)', 'Slack alert for sales_transactions', 'sales_transactions', 'WARNING', 'SLACK',
- '{"webhook_url": "https://hooks.slack.com/services/XXX/YYY/ZZZ", "channel": "#data-alerts"}'::jsonb)
-ON CONFLICT DO NOTHING;
+INSERT INTO alert_rules (name, description, dataset_name, severity, channel_type, channel_config)
+SELECT 'Sales Alerts (Slack)', 'Slack alert for sales_transactions', 'sales_transactions', 'WARNING', 'SLACK',
+ '{"webhook_url": "https://hooks.slack.com/services/XXX/YYY/ZZZ", "channel": "#data-alerts"}'::jsonb
+WHERE NOT EXISTS (
+    SELECT 1 FROM alert_rules WHERE name = 'Sales Alerts (Slack)'
+);

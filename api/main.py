@@ -24,7 +24,7 @@ from models import (
     Anomaly, AnomalySeverity, AnomalyStatus,
     HealthResponse, ErrorResponse,
     AlertRule, AlertRuleCreate, AlertHistory,
-    JobExecution, StageMetrics
+    Job
 )
 from database import execute_query, execute_single, execute_insert, test_connection
 from alerting import AlertEngine
@@ -1506,7 +1506,7 @@ async def test_alert(anomaly_id: Optional[str] = Query(None, description="Anomal
 # Job Execution & Stage Metrics Endpoints
 # ============================================
 
-@app.get("/jobs", response_model=List[JobExecution], tags=["Jobs"])
+@app.get("/jobs", response_model=List[Job], tags=["Jobs"])
 async def list_jobs(
     status: Optional[str] = Query(None, description="Filter by status (Running, Success, Failed)"),
     job_name: Optional[str] = Query(None, description="Filter by job name (substring match)"),
@@ -1529,24 +1529,22 @@ async def list_jobs(
     query = """
         SELECT
             id::text,
-            job_id,
+            organization_id::text,
             job_name,
-            application_id,
+            description,
+            status,
+            metadata,
             started_at,
             ended_at,
-            status,
-            error_message,
-            total_tasks,
-            failed_tasks,
-            shuffle_read_bytes,
-            shuffle_write_bytes,
-            metadata,
-            EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000 as duration_ms
-        FROM job_executions
-        WHERE 1=1
+            last_execution_id,
+            execution_metrics,
+            created_at,
+            updated_at
+        FROM jobs
+        WHERE organization_id = %s
     """
 
-    params = []
+    params = [org.org_id]
 
     if status:
         query += " AND status = %s"
@@ -1557,7 +1555,8 @@ async def list_jobs(
         params.append(f"%{job_name}%")
 
     if application_id:
-        query += " AND application_id = %s"
+        # Check metadata ->> application_id
+        query += " AND metadata->>'application_id' = %s"
         params.append(application_id)
 
     if hours:
@@ -1568,16 +1567,17 @@ async def list_jobs(
     query += f" LIMIT {limit} OFFSET {offset}"
 
     try:
-        results = execute_query(query, tuple(params) if params else None)
+        results = execute_query(query, tuple(params))
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@app.get("/jobs/{job_uuid}", response_model=JobExecution, tags=["Jobs"])
+
+@app.get("/jobs/{job_uuid}", response_model=Job, tags=["Jobs"])
 async def get_job(job_uuid: str, org: OrgContext = Depends(get_current_org)):
     """
-    Get a single job execution by UUID
+    Get a single job by UUID
 
     **Example:**
     ```
@@ -1587,27 +1587,28 @@ async def get_job(job_uuid: str, org: OrgContext = Depends(get_current_org)):
     query = """
         SELECT
             id::text,
-            job_id,
+            organization_id::text,
             job_name,
-            application_id,
+            description,
+            status,
+            metadata,
             started_at,
             ended_at,
-            status,
-            error_message,
-            total_tasks,
-            failed_tasks,
-            shuffle_read_bytes,
-            shuffle_write_bytes,
-            metadata,
-            EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000 as duration_ms
-        FROM job_executions
-        WHERE id = %s::uuid
+            last_execution_id,
+            execution_metrics,
+            created_at,
+            updated_at
+        FROM jobs
+        WHERE id = %s AND organization_id = %s
     """
 
     try:
-        result = execute_single(query, (job_uuid,))
+        result = execute_single(query, (job_uuid, org.org_id))
         if not result:
-            raise HTTPException(status_code=404, detail=f"Job execution '{job_uuid}' not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Job '{job_uuid}' not found"
+            )
         return result
     except HTTPException:
         raise
@@ -1615,118 +1616,47 @@ async def get_job(job_uuid: str, org: OrgContext = Depends(get_current_org)):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@app.get("/jobs/{job_uuid}/stages", response_model=List[StageMetrics], tags=["Jobs"])
+@app.get("/jobs/{job_uuid}/stages", tags=["Jobs"])
 async def get_job_stages(job_uuid: str, org: OrgContext = Depends(get_current_org)):
     """
-    Get all stage metrics for a job execution
-
-    Returns per-stage breakdown of metrics including I/O, shuffle, compute, and spill.
-
-    **Example:**
-    ```
-    GET /jobs/123e4567-e89b-12d3-a456-426614174000/stages
-    ```
+    Get stages for a job execution.
+    
+    DEPRECATED: Returns empty list as stage metrics are no longer stored individually.
     """
-    # First verify the job exists and get its job_id
-    job_query = "SELECT job_id, application_id FROM job_executions WHERE id = %s::uuid"
-
+    # Verify job exists first
+    query = "SELECT id FROM jobs WHERE id = %s AND organization_id = %s"
     try:
-        job = execute_single(job_query, (job_uuid,))
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job execution '{job_uuid}' not found")
-
-        query = """
-            SELECT
-                id::text, job_id, application_id, stage_id, stage_name,
-                stage_attempt_id, num_tasks, started_at, ended_at, duration_ms,
-                input_bytes, input_records, output_bytes, output_records,
-                shuffle_read_bytes, shuffle_read_records,
-                shuffle_remote_bytes_read, shuffle_local_bytes_read,
-                shuffle_remote_bytes_read_to_disk, shuffle_fetch_wait_time_ms,
-                shuffle_remote_blocks_fetched, shuffle_local_blocks_fetched,
-                shuffle_write_bytes, shuffle_write_records, shuffle_write_time_ns,
-                executor_run_time_ms, executor_cpu_time_ns, jvm_gc_time_ms,
-                executor_deserialize_time_ms, executor_deserialize_cpu_time_ns,
-                result_serialization_time_ms, result_size_bytes,
-                memory_bytes_spilled, disk_bytes_spilled, peak_execution_memory,
-                created_at
-            FROM stage_metrics
-            WHERE job_id = %s
-        """
-
-        params = [job['job_id']]
-
-        if job.get('application_id'):
-            query += " AND application_id = %s"
-            params.append(job['application_id'])
-
-        query += " ORDER BY stage_id, stage_attempt_id"
-
-        results = execute_query(query, tuple(params))
-        return results
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
-
-
-@app.get("/jobs/{job_uuid}/stages/{stage_id}", response_model=StageMetrics, tags=["Jobs"])
-async def get_job_stage(job_uuid: str, stage_id: int):
-    """
-    Get metrics for a specific stage of a job execution
-
-    **Example:**
-    ```
-    GET /jobs/123e4567-e89b-12d3-a456-426614174000/stages/2
-    ```
-    """
-    job_query = "SELECT job_id, application_id FROM job_executions WHERE id = %s::uuid"
-
-    try:
-        job = execute_single(job_query, (job_uuid,))
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job execution '{job_uuid}' not found")
-
-        query = """
-            SELECT
-                id::text, job_id, application_id, stage_id, stage_name,
-                stage_attempt_id, num_tasks, started_at, ended_at, duration_ms,
-                input_bytes, input_records, output_bytes, output_records,
-                shuffle_read_bytes, shuffle_read_records,
-                shuffle_remote_bytes_read, shuffle_local_bytes_read,
-                shuffle_remote_bytes_read_to_disk, shuffle_fetch_wait_time_ms,
-                shuffle_remote_blocks_fetched, shuffle_local_blocks_fetched,
-                shuffle_write_bytes, shuffle_write_records, shuffle_write_time_ns,
-                executor_run_time_ms, executor_cpu_time_ns, jvm_gc_time_ms,
-                executor_deserialize_time_ms, executor_deserialize_cpu_time_ns,
-                result_serialization_time_ms, result_size_bytes,
-                memory_bytes_spilled, disk_bytes_spilled, peak_execution_memory,
-                created_at
-            FROM stage_metrics
-            WHERE job_id = %s AND stage_id = %s
-        """
-
-        params = [job['job_id'], stage_id]
-
-        if job.get('application_id'):
-            query += " AND application_id = %s"
-            params.append(job['application_id'])
-
-        query += " ORDER BY stage_attempt_id DESC LIMIT 1"
-
-        result = execute_single(query, tuple(params))
+        result = execute_single(query, (job_uuid, org.org_id))
         if not result:
-            raise HTTPException(status_code=404, detail=f"Stage {stage_id} not found for job '{job_uuid}'")
-        return result
+             raise HTTPException(
+                status_code=404,
+                detail=f"Job '{job_uuid}' not found"
+            )
+        return []
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@app.get("/jobs/{job_uuid}/stages/{stage_id}", tags=["Jobs"])
+async def get_job_stage(job_uuid: str, stage_id: int, org: OrgContext = Depends(get_current_org)):
+    """
+    Get specific stage metrics.
+    
+    DEPRECATED: Always returns 404.
+    """
+    raise HTTPException(status_code=404, detail="Stage level metrics are no longer available.")
+
+
+
+
 
 
 @app.get("/jobs/stats/summary", tags=["Jobs"])
 async def get_jobs_summary(
-    hours: int = Query(24, ge=1, le=720, description="Time window in hours")
+    hours: int = Query(24, ge=1, le=720, description="Time window in hours"),
+    org: OrgContext = Depends(get_current_org)
 ):
     """
     Get summary statistics of job executions
@@ -1746,20 +1676,24 @@ async def get_jobs_summary(
             SUM(CASE WHEN status = 'Running' THEN 1 ELSE 0 END) as running_count,
             AVG(EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000) as avg_duration_ms,
             MAX(EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000) as max_duration_ms
-        FROM job_executions
+        FROM jobs
         WHERE started_at > NOW() - (INTERVAL '1 hour' * %s)
+          AND organization_id = %s
     """
 
     try:
-        result = execute_single(query, (hours,))
+        result = execute_single(query, (hours, org.org_id))
 
+        total = result['total_jobs'] or 0
+        success = result['success_count'] or 0
+        
         return {
             "time_window_hours": hours,
-            "total_jobs": result['total_jobs'] or 0,
-            "success_count": result['success_count'] or 0,
+            "total_jobs": total,
+            "success_count": success,
             "failed_count": result['failed_count'] or 0,
             "running_count": result['running_count'] or 0,
-            "success_rate": round((result['success_count'] or 0) / max(result['total_jobs'] or 1, 1) * 100, 2),
+            "success_rate": round((success / total * 100), 2) if total > 0 else 0.0,
             "avg_duration_ms": round(float(result['avg_duration_ms'] or 0), 2),
             "max_duration_ms": round(float(result['max_duration_ms'] or 0), 2)
         }

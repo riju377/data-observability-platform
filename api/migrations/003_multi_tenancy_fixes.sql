@@ -29,11 +29,21 @@ FROM datasets d
 WHERE fs.dataset_id = d.id AND fs.organization_id IS NULL;
 
 -- 3. job_executions: add organization_id
-ALTER TABLE job_executions ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id);
-CREATE INDEX IF NOT EXISTS idx_jobs_org ON job_executions(organization_id);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'job_executions') THEN
+        ALTER TABLE job_executions ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id);
+        CREATE INDEX IF NOT EXISTS idx_jobs_org ON job_executions(organization_id);
+    END IF;
+END $$;
 
 -- 4. stage_metrics: add organization_id
-ALTER TABLE stage_metrics ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id);
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stage_metrics') THEN
+        ALTER TABLE stage_metrics ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id);
+    END IF;
+END $$;
 
 -- 5. data_quality_rules: scope UNIQUE to org
 -- 5. data_quality_rules: scope UNIQUE to org

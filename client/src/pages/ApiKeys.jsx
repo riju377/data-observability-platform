@@ -572,11 +572,6 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "$
                   <ChevronRight size={14} className="config-arrow" />
                   <code className="config-val">com.observability.listener.ObservabilityListener</code>
                 </div>
-                <div className="config-row">
-                  <code className="config-key">spark.sql.queryExecutionListeners</code>
-                  <ChevronRight size={14} className="config-arrow" />
-                  <code className="config-val">com.observability.listener.ObservabilityListener</code>
-                </div>
 
                 <div className="config-row">
                   <code className="config-key">spark.observability.api.key</code>

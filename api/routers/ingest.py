@@ -7,6 +7,11 @@ All endpoints require API key authentication with "ingest" scope.
 from datetime import datetime
 from typing import Optional, List
 import json
+import logging
+
+# Setup file logging to debug intake
+logging.basicConfig(filename='api_ingest.log', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from pydantic import BaseModel
@@ -106,6 +111,9 @@ class IngestPayload(BaseModel):
     # Anomalies
     anomalies: List[Anomaly] = []
     
+    # Job-level execution metrics (CPU, Spill, Memory)
+    execution_metrics: Optional[dict] = None
+    
     class Config:
         json_schema_extra = {
             "example": {
@@ -143,7 +151,7 @@ class IngestResponse(BaseModel):
 # Ingest Endpoints
 # ============================================
 
-@router.post("/metadata", response_model=IngestResponse)
+@router.post("/metadata")
 async def ingest_metadata(
     payload: IngestPayload,
     background_tasks: BackgroundTasks,
@@ -165,6 +173,10 @@ async def ingest_metadata(
       -d '{"job_id": "spark-123", "inputs": [...], "outputs": [...]}'
     ```
     """
+    logger.debug(f"Received metadata for job: {payload.job_id} ({payload.job_name}). Metrics present: {payload.execution_metrics is not None}")
+    if payload.execution_metrics:
+        logger.debug(f"Execution metrics payload: {json.dumps(payload.execution_metrics)}")
+        
     # Queue for async processing (immediate return to Spark)
     background_tasks.add_task(process_metadata, payload, org.org_id)
     
@@ -269,16 +281,7 @@ def infer_location_from_name(name: str) -> Optional[str]:
 
 def generalize_path(path: Optional[str]) -> str:
     """
-    Generate a stable signature for a path by replacing variable parts (dates, IDs) with wildcards.
-    
-    Steps applied in order:
-    1. Hive Partitions: (date|dt|ts)=value -> (date|dt|ts)=*
-    2. Date Ranges: 20251003-20251231 -> *
-    3. ISO Dates: 2025-10-03 -> *
-    4. Compact Dates: /20251003/ or /202510/ -> /*/
-    5. Path Dates: /2025/10/03/ -> /*/*/*/
-    6. Time: 10:30:00 -> *
-    7. Temp/Attempts: _attempt_123 -> *
+    Generate a stable signature for a path by replacing variable parts.
     """
     if not path:
         return "UNKNOWN"
@@ -320,11 +323,12 @@ def generalize_path(path: Optional[str]) -> str:
 
 def process_metadata(payload: IngestPayload, org_id: str):
     """
-    Process ingested metadata (runs in background)
-    
+    Background task to process ingested metadata.
     This ensures Spark jobs return immediately without waiting for DB writes.
     """
+    # Wrap entire function in try/except to catch ANY error
     try:
+        logger.info(f"Starting process_metadata for job {payload.job_id} ({payload.job_name})")
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
@@ -357,7 +361,17 @@ def process_metadata(payload: IngestPayload, org_id: str):
                         updated_at = NOW()
                     RETURNING id
                 """, (table.name, dataset_type, location, org_id))
-                dataset_ids[table.name] = cursor.fetchone()['id']
+                ds_row = cursor.fetchone()
+                
+                if ds_row:
+                    dataset_ids[table.name] = ds_row['id']
+                else:
+                    # Fallback: SELECT if RETURNING failed
+                    cursor.execute(
+                        "SELECT id FROM datasets WHERE organization_id = %s AND name = %s", 
+                        (org_id, table.name)
+                    )
+                    dataset_ids[table.name] = cursor.fetchone()['id']
             
             # 2. Insert lineage edges
             for edge in payload.lineage_edges:
@@ -371,6 +385,58 @@ def process_metadata(payload: IngestPayload, org_id: str):
                         ON CONFLICT (source_dataset_id, target_dataset_id)
                         DO UPDATE SET job_id = EXCLUDED.job_id, job_name = EXCLUDED.job_name, created_at = NOW()
                     """, (source_id, target_id, payload.job_id, payload.job_name, org_id))
+            
+            # 2.5. Upsert Jobs and Insert Job Executions (Normalized)
+            try:
+                # Ensure job_name is not None
+                final_job_name = payload.job_name or payload.job_id or "Unknown Job"
+
+                # Prepare execution metrics
+                logger.debug(f"Processing job {final_job_name} ({payload.job_id}). Execution Metrics: {payload.execution_metrics}")
+                exec_metrics_json = json.dumps(payload.execution_metrics) if payload.execution_metrics else None
+                status = "SUCCESS" # We assume success if we got here for now
+
+                cursor.execute("""
+                    INSERT INTO jobs (
+                        organization_id, job_name, updated_at, 
+                        status, started_at, ended_at, last_execution_id, execution_metrics, metadata
+                    )
+                    VALUES (%s, %s, NOW(), %s, NOW(), NOW(), %s, %s, %s::jsonb)
+                    ON CONFLICT (organization_id, job_name) 
+                    DO UPDATE SET 
+                        updated_at = NOW(),
+                        status = COALESCE(EXCLUDED.status, jobs.status),
+                        started_at = COALESCE(EXCLUDED.started_at, jobs.started_at),
+                        ended_at = COALESCE(EXCLUDED.ended_at, jobs.ended_at),
+                        last_execution_id = COALESCE(EXCLUDED.last_execution_id, jobs.last_execution_id),
+                        execution_metrics = COALESCE(EXCLUDED.execution_metrics, jobs.execution_metrics),
+                        metadata = COALESCE(EXCLUDED.metadata, jobs.metadata)
+                    RETURNING id
+                """, (
+                    org_id, 
+                    final_job_name, 
+                    status if payload.execution_metrics else None, # Only set status if metrics provided
+                    payload.job_id,
+                    exec_metrics_json,
+                    json.dumps({"application_id": payload.application_id}) if payload.application_id else None
+                ))
+                job_row = cursor.fetchone()
+                
+                if not job_row:
+                    # Fallback: SELECT if RETURNING failed
+                    cursor.execute(
+                        "SELECT id FROM jobs WHERE organization_id = %s AND job_name = %s", 
+                        (org_id, final_job_name)
+                    )
+                    job_row = cursor.fetchone()
+                
+                job_definition_id = job_row['id'] if job_row else None
+                job_definition_id = job_row['id'] if job_row else None
+            except Exception as e:
+                logger.error(f"Error upserting job {payload.job_id}: {str(e)}")
+            
+            # Removed: Steps for separate job_executions table
+
             
             # 3. Insert metrics
             for dataset_name, metrics_data in payload.metrics.items():
@@ -442,7 +508,7 @@ def process_metadata(payload: IngestPayload, org_id: str):
                     ))
 
             conn.commit()
-            print(f"Processed metadata for job {payload.job_id}: {len(unique_tables)} datasets, {len(payload.lineage_edges)} edges, {len(payload.column_lineage)} column edges")
+            logger.info(f"Processed metadata for job {payload.job_id}: {len(unique_tables)} datasets, {len(payload.lineage_edges)} edges, {len(payload.column_lineage)} column edges")
 
             # 6. Trigger Backend Anomaly Detection
             try:
@@ -495,7 +561,7 @@ def process_metadata(payload: IngestPayload, org_id: str):
                                      anomaly['deviation'], anomaly['message'], org_id, payload.job_id
                                  ))
                              except Exception as e:
-                                 print(f"Error inserting anomaly: {e}")
+                                 logger.error(f"Error inserting anomaly: {e}")
                     conn.commit()
 
                 # Trigger Alerts
@@ -503,16 +569,14 @@ def process_metadata(payload: IngestPayload, org_id: str):
                     try:
                         AlertService.check_and_send_alerts(all_anomalies, org_id)
                     except Exception as e:
-                        print(f"Failed to send alerts: {e}")
-                print(f"Processed alerts for {len(all_anomalies)} anomalies")
+                        logger.error(f"Failed to send alerts: {e}")
+                logger.info(f"Processed alerts for {len(all_anomalies)} anomalies")
 
             except Exception as e:
-                print(f"Error in anomaly detection/alerting: {e}")
-                import traceback
-                traceback.print_exc()
+                logger.error(f"Error in anomaly detection/alerting: {e}")
 
     except Exception as e:
-        print(f"Error processing metadata for job {payload.job_id}: {e}")
+        logger.error(f"Error processing metadata for job {payload.job_id}: {e}")
 
 def process_schema(payload: IngestSchemaPayload, org_id: str):
     """Process ingested schemas (runs in background)"""
@@ -594,12 +658,10 @@ def process_schema(payload: IngestSchemaPayload, org_id: str):
                       change_type, change_description))
 
             conn.commit()
-            print(f"Processed {len(payload.schemas)} schemas for job {payload.job_id}")
+            logger.info(f"Processed {len(payload.schemas)} schemas for job {payload.job_id}")
 
     except Exception as e:
-        print(f"Error processing schema for job {payload.job_id}: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"An unexpected error occurred in process_metadata: {str(e)}")
 
     # Trigger alerts for schema change anomalies (outside the DB transaction)
     if all_schema_anomalies:

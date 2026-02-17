@@ -8,6 +8,10 @@ from fastapi import FastAPI, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import uvicorn
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from auth import get_current_org, OrgContext
 

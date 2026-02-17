@@ -183,76 +183,32 @@ CREATE INDEX IF NOT EXISTS idx_freshness_stale ON freshness_sla(is_stale, last_u
 CREATE INDEX IF NOT EXISTS idx_freshness_org ON freshness_sla(organization_id);
 
 -- =====================================================
--- JOB EXECUTIONS & STAGE METRICS
+-- JOB EXECUTIONS (Denormalized)
 -- =====================================================
 
--- Job Executions
-CREATE TABLE IF NOT EXISTS job_executions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Jobs (Master table for job definitions and latest execution state)
+CREATE TABLE IF NOT EXISTS jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID REFERENCES organizations(id),
-    job_id VARCHAR(200) NOT NULL,
-    job_name VARCHAR(500),
-    application_id VARCHAR(200),
-    started_at TIMESTAMP,
-    ended_at TIMESTAMP,
+    job_name VARCHAR(500) NOT NULL,
+    description TEXT,
+    
+    -- Execution State (Denormalized from migration 007)
     status VARCHAR(50),
-    error_message TEXT,
-    total_tasks INTEGER,
-    failed_tasks INTEGER,
-    total_stages INTEGER,
-    shuffle_read_bytes BIGINT,
-    shuffle_write_bytes BIGINT,
-    metadata JSONB
-);
-
-CREATE INDEX IF NOT EXISTS idx_jobs_id ON job_executions(job_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_started ON job_executions(started_at DESC);
-CREATE INDEX IF NOT EXISTS idx_jobs_org ON job_executions(organization_id);
-
--- Stage Metrics
-CREATE TABLE IF NOT EXISTS stage_metrics (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    organization_id UUID REFERENCES organizations(id),
-    job_execution_id UUID REFERENCES job_executions(id) ON DELETE CASCADE,
-    job_id VARCHAR(200) NOT NULL,
-    application_id VARCHAR(200),
-    stage_id INTEGER NOT NULL,
-    stage_name VARCHAR(500),
-    stage_attempt_id INTEGER DEFAULT 0,
-    num_tasks INTEGER,
+    metadata JSONB,
     started_at TIMESTAMP,
     ended_at TIMESTAMP,
-    duration_ms BIGINT,
-    input_bytes BIGINT,
-    input_records BIGINT,
-    output_bytes BIGINT,
-    output_records BIGINT,
-    shuffle_read_bytes BIGINT,
-    shuffle_read_records BIGINT,
-    shuffle_remote_bytes_read BIGINT,
-    shuffle_local_bytes_read BIGINT,
-    shuffle_remote_bytes_read_to_disk BIGINT,
-    shuffle_fetch_wait_time_ms BIGINT,
-    shuffle_remote_blocks_fetched BIGINT,
-    shuffle_local_blocks_fetched BIGINT,
-    shuffle_write_bytes BIGINT,
-    shuffle_write_records BIGINT,
-    shuffle_write_time_ns BIGINT,
-    executor_run_time_ms BIGINT,
-    executor_cpu_time_ns BIGINT,
-    jvm_gc_time_ms BIGINT,
-    executor_deserialize_time_ms BIGINT,
-    executor_deserialize_cpu_time_ns BIGINT,
-    result_serialization_time_ms BIGINT,
-    result_size_bytes BIGINT,
-    memory_bytes_spilled BIGINT,
-    disk_bytes_spilled BIGINT,
-    peak_execution_memory BIGINT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_execution_id VARCHAR(200), -- Spark's job_id/app_id
+    execution_metrics JSONB,
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(organization_id, job_name)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_stage_metrics_unique ON stage_metrics(job_id, COALESCE(application_id, ''), stage_id, stage_attempt_id);
-CREATE INDEX IF NOT EXISTS idx_stage_metrics_job_id ON stage_metrics(job_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_org_name ON jobs(organization_id, job_name);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_updated ON jobs(updated_at DESC);
 
 -- =====================================================
 -- ALERTING SYSTEM

@@ -37,7 +37,7 @@ object ObservabilityApiClient extends LazyLogging {
   
   // Defaults
   val DEFAULT_CONNECT_TIMEOUT = 5000  // 5 seconds
-  val DEFAULT_READ_TIMEOUT = 10000    // 10 seconds
+  val DEFAULT_READ_TIMEOUT = 30000    // 30 seconds
   val DEFAULT_API_URL = "https://data-observability-api.onrender.com"
   
   /**
@@ -133,10 +133,25 @@ class ObservabilityApiClient(
     } yield s"""{"source": "${input.name}", "target": "${output.name}"}"""
     val edgesJson = lineageEdges.mkString(",")
     
-    // Build metrics map
+    // Build metrics map (per-dataset)
     val metricsJson = metadata.outputTables.map { table =>
-      s""""${table.name}": {"row_count": ${metadata.metrics.rowsWritten.getOrElse(0)}}"""
+      s""""${table.name}": {"row_count": ${metadata.metrics.rowsWritten.getOrElse(0)}, "byte_size": ${metadata.metrics.bytesWritten.getOrElse(0)}}"""
     }.mkString(",")
+    
+    // Build execution_metrics (job-level performance data)
+    val execMetrics = metadata.metrics
+    val executionMetricsJson = s"""{
+      |    "executor_cpu_time_ns": ${execMetrics.executorCpuTimeNs.getOrElse(0)},
+      |    "executor_run_time_ms": ${execMetrics.executionTimeMs.getOrElse(0)},
+      |    "memory_bytes_spilled": ${execMetrics.memoryBytesSpilled.getOrElse(0)},
+      |    "disk_bytes_spilled": ${execMetrics.diskBytesSpilled.getOrElse(0)},
+      |    "peak_execution_memory": ${execMetrics.peakExecutionMemory.getOrElse(0)},
+      |    "shuffle_read_bytes": ${execMetrics.shuffleReadBytes.getOrElse(0)},
+      |    "shuffle_write_bytes": ${execMetrics.shuffleWriteBytes.getOrElse(0)},
+      |    "jvm_gc_time_ms": ${execMetrics.jvmGcTimeMs.getOrElse(0)},
+      |    "total_tasks": ${execMetrics.totalTasks.getOrElse(0)},
+      |    "failed_tasks": ${execMetrics.failedTasks.getOrElse(0)}
+      |  }""".stripMargin
     
     val payload = s"""{
       |  "api_version": "1.0",
@@ -146,7 +161,8 @@ class ObservabilityApiClient(
       |  "inputs": [$inputsJson],
       |  "outputs": [$outputsJson],
       |  "lineage_edges": [$edgesJson],
-      |  "metrics": {$metricsJson}
+      |  "metrics": {$metricsJson},
+      |  "execution_metrics": $executionMetricsJson
       |}""".stripMargin
     
     post("/api/v1/ingest/metadata", payload)
@@ -229,6 +245,7 @@ class ObservabilityApiClient(
         conn.setDoOutput(true)
         
         // Write payload
+        logger.debug(s"Sending payload to $url: ${payload.take(1000)}")
         val writer = new OutputStreamWriter(conn.getOutputStream)
         writer.write(payload)
         writer.flush()

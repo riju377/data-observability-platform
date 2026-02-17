@@ -7,8 +7,13 @@
 -- ============================================
 
 -- 1. datasets: UNIQUE(name) → UNIQUE(organization_id, name)
-ALTER TABLE datasets DROP CONSTRAINT IF EXISTS datasets_name_key;
-ALTER TABLE datasets ADD CONSTRAINT datasets_organization_id_name_key UNIQUE(organization_id, name);
+-- 1. datasets: UNIQUE(name) -> UNIQUE(organization_id, name)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'datasets_organization_id_name_key') THEN
+        ALTER TABLE datasets ADD CONSTRAINT datasets_organization_id_name_key UNIQUE(organization_id, name);
+    END IF;
+END $$;
 
 DROP INDEX IF EXISTS idx_datasets_name;
 CREATE INDEX IF NOT EXISTS idx_datasets_org_name ON datasets(organization_id, name);
@@ -31,9 +36,16 @@ CREATE INDEX IF NOT EXISTS idx_jobs_org ON job_executions(organization_id);
 ALTER TABLE stage_metrics ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES organizations(id);
 
 -- 5. data_quality_rules: scope UNIQUE to org
+-- 5. data_quality_rules: scope UNIQUE to org
 ALTER TABLE data_quality_rules DROP CONSTRAINT IF EXISTS data_quality_rules_dataset_name_column_name_rule_type_name_key;
-ALTER TABLE data_quality_rules ADD CONSTRAINT data_quality_rules_org_unique 
-    UNIQUE(organization_id, dataset_name, column_name, rule_type, name);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'data_quality_rules_org_unique') THEN
+        ALTER TABLE data_quality_rules ADD CONSTRAINT data_quality_rules_org_unique 
+            UNIQUE(organization_id, dataset_name, column_name, rule_type, name);
+    END IF;
+END $$;
 
 -- 6. Recreate all 4 SQL functions with org_id parameter
 -- (These use CREATE OR REPLACE so they're safe to re-run, but we drop old signatures first)

@@ -7,7 +7,7 @@ import {
   FileJson,
   AlertTriangle,
   Bell,
-  Database,
+  Workflow,
   LogOut,
   User,
   Key,
@@ -83,7 +83,7 @@ function Layout() {
     {
       label: 'MONITORING',
       items: [
-        { to: '/jobs', icon: Database, label: 'Jobs' },
+        { to: '/jobs', icon: Workflow, label: 'Jobs' },
         { to: '/anomalies', icon: AlertTriangle, label: 'Anomalies' },
         { to: '/alerts', icon: Bell, label: 'Alerts' },
       ]

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Key, Code, Rocket, CheckCircle, BookOpen, Terminal, ChevronRight } from 'lucide-react';
+import { Key, Code, Settings, CheckCircle, BookOpen, Terminal, ChevronRight, Zap } from 'lucide-react';
 import { getApiKeys } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import './GettingStarted.css';
@@ -70,7 +70,7 @@ function GettingStarted() {
     <div className="getting-started">
       <div className="welcome-banner">
         <div className="welcome-icon">
-          <Rocket size={48} strokeWidth={1.5} />
+          <Zap size={48} strokeWidth={1.5} />
         </div>
         <h1>Welcome to Data Observability Platform!</h1>
         <p className="welcome-description">
@@ -232,7 +232,7 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "$
           <div className="step-header">
             <div className="step-number">3</div>
             <div className="step-icon spark">
-              <Rocket size={24} />
+              <Settings size={24} />
             </div>
             <div className="step-title">
               <h3>Configure the Listener</h3>

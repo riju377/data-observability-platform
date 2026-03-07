@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Loader2, Zap, CheckCircle, Clock, XCircle, ArrowLeft,
-  AlertTriangle, AlertOctagon, Info, ThumbsUp, Search
+  AlertTriangle, AlertOctagon, Info, ThumbsUp, Search, Workflow
 } from 'lucide-react';
 import { getJobs, getJob, getJobsSummary } from '../services/api';
+import PageHeader from '../components/PageHeader';
 import './Jobs.css';
 
 // ─── Utility Functions ───────────────────────────────
@@ -381,9 +382,11 @@ function ListView({
 
   return (
     <div className="jobs-page">
-      <div className="jobs-header">
-        <h2>Jobs</h2>
-      </div>
+      <PageHeader
+        title="Spark Jobs"
+        description="Monitor job execution, performance metrics, and failures"
+        icon={Workflow}
+      />
 
       {/* Onboarding Banner */}
       {showBanner && (
@@ -413,7 +416,7 @@ function ListView({
             ✕
           </button>
           <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.25rem', fontWeight: 600 }}>
-            🚀 Get Started with Data Observability
+            Get Started with Data Observability
           </h3>
           <div style={{ fontSize: '0.875rem', lineHeight: '1.6' }}>
             <p style={{ margin: '0 0 0.75rem 0' }}>

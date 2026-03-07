@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getDatasets, getSchemaHistory } from '../services/api';
+import { getCachedDatasets, getCachedSchemaHistory } from '../services/cachedApi';
 import { FileJson, ChevronDown, Loader2, Database, Plus, Minus, Edit3, AlertTriangle, Check } from 'lucide-react';
 import { SchemaTree } from '../components/FieldTree';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -30,20 +30,39 @@ function Schema() {
   const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => {
-    loadDatasets();
+    loadInitialData();
   }, []);
 
-  const loadDatasets = async () => {
+  const loadInitialData = async () => {
     try {
-      const res = await getDatasets();
-      const datasetList = res.data || [];
-      setDatasets(datasetList);
-      if (datasetList.length > 0) {
-        setSelectedDataset(datasetList[0].name);
-        loadSchemaHistory(datasetList[0].name);
+      const lastSelected = localStorage.getItem('lastSelectedSchemaDataset');
+
+      if (lastSelected) {
+        // Parallel loading with last selected dataset
+        const [datasetList, schemaHistory] = await Promise.all([
+          getCachedDatasets(),
+          getCachedSchemaHistory(lastSelected).catch(() => null)
+        ]);
+
+        setDatasets(datasetList);
+        if (datasetList.some(d => d.name === lastSelected)) {
+          setSelectedDataset(lastSelected);
+          setSchemaHistory(schemaHistory || []);
+        } else if (datasetList.length > 0) {
+          setSelectedDataset(datasetList[0].name);
+          loadSchemaHistory(datasetList[0].name);
+        }
+      } else {
+        // Fallback to sequential
+        const datasetList = await getCachedDatasets();
+        setDatasets(datasetList);
+        if (datasetList.length > 0) {
+          setSelectedDataset(datasetList[0].name);
+          loadSchemaHistory(datasetList[0].name);
+        }
       }
     } catch (error) {
-      console.error('Failed to load datasets:', error);
+      console.error('Failed to load data:', error);
     }
     setInitialLoading(false);
   };
@@ -51,8 +70,8 @@ function Schema() {
   const loadSchemaHistory = async (datasetName) => {
     setLoading(true);
     try {
-      const res = await getSchemaHistory(datasetName);
-      setSchemaHistory(res.data || []);
+      const schemaHistory = await getCachedSchemaHistory(datasetName);
+      setSchemaHistory(schemaHistory || []);
       setSelectedVersions([]);
       setShowDiff(false);
     } catch (error) {
@@ -150,10 +169,6 @@ function Schema() {
 
   const MAX_VISIBLE_FIELDS = 10; // Show first 10 top-level fields in tree view
 
-  if (initialLoading) {
-    return <LoadingSpinner message="Loading datasets..." />;
-  }
-
   return (
     <div className="schema-page">
       <PageHeader
@@ -161,46 +176,57 @@ function Schema() {
         description="Track schema changes and compare versions"
         icon={FileJson}
       >
-        <div className="selector">
-          <label>Dataset</label>
-          <div className="select-wrapper">
-            <select
-              value={selectedDataset}
-              onChange={(e) => {
-                setSelectedDataset(e.target.value);
-                loadSchemaHistory(e.target.value);
-              }}
-            >
-              {datasets.map((d) => {
-                const { bucket, displayName } = parseDatasetName(d.name);
-                return (
-                  <option key={d.id} value={d.name}>
-                    {bucket ? `${displayName} (${bucket})` : displayName}
-                  </option>
-                );
-              })}
-            </select>
-            <ChevronDown size={18} className="select-icon" />
-          </div>
-        </div>
-
-        {
-          selectedVersions.length === 2 && (
-            <div className="floating-compare">
-              <button
-                className={`diff-btn ${showDiff ? 'active' : ''}`}
-                onClick={() => setShowDiff(!showDiff)}
-              >
-                <Edit3 size={16} />
-                <span>{showDiff ? 'Hide Diff' : 'Compare Versions'}</span>
-              </button>
+        {!initialLoading && datasets.length > 0 && (
+          <>
+            <div className="selector">
+              <label>Dataset</label>
+              <div className="select-wrapper">
+                <select
+                  value={selectedDataset}
+                  onChange={(e) => {
+                    const datasetName = e.target.value;
+                    setSelectedDataset(datasetName);
+                    localStorage.setItem('lastSelectedSchemaDataset', datasetName);
+                    loadSchemaHistory(datasetName);
+                  }}
+                >
+                  {datasets.map((d) => {
+                    const { bucket, displayName } = parseDatasetName(d.name);
+                    return (
+                      <option key={d.id} value={d.name}>
+                        {bucket ? `${displayName} (${bucket})` : displayName}
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronDown size={18} className="select-icon" />
+              </div>
             </div>
-          )
-        }
-      </PageHeader >
 
-      {
-        loading ? (
+            {selectedVersions.length === 2 && (
+              <div className="floating-compare">
+                <button
+                  className={`diff-btn ${showDiff ? 'active' : ''}`}
+                  onClick={() => setShowDiff(!showDiff)}
+                >
+                  <Edit3 size={16} />
+                  <span>{showDiff ? 'Hide Diff' : 'Compare Versions'}</span>
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </PageHeader>
+
+      {initialLoading ? (
+        <LoadingSpinner message="Loading datasets..." />
+      ) : datasets.length === 0 ? (
+        <div className="empty-state">
+          <FileJson size={48} strokeWidth={1.5} />
+          <h3>No datasets found</h3>
+          <p>Run a Spark job to capture schema information.</p>
+        </div>
+      ) : loading ? (
           <div className="loading-content" >
             <Loader2 className="loading-spinner" size={32} />
             <span>Loading schema history...</span>

@@ -3,53 +3,25 @@ import { useAuth } from '../context/AuthContext';
 
 /**
  * Wrapper component that redirects to login if not authenticated
- * 
+ * Uses optimistic rendering - shows navbar immediately with cached user data
+ *
  * Usage:
  *   <ProtectedRoute>
  *     <Dashboard />
  *   </ProtectedRoute>
  */
 function ProtectedRoute({ children }) {
-    const { isAuthenticated, loading } = useAuth();
+    const { isAuthenticated, validating } = useAuth();
     const location = useLocation();
 
-    if (loading) {
-        return (
-            <div className="loading-screen">
-                <div className="loading-spinner" />
-                <p>Loading...</p>
-                <style>{`
-          .loading-screen {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #1a1a2e;
-            color: white;
-            gap: 1rem;
-          }
-          .loading-spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top-color: #60a5fa;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-          }
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
-            </div>
-        );
-    }
-
-    if (!isAuthenticated) {
+    // Only redirect if definitely not authenticated
+    // If validating, render children (optimistic rendering)
+    if (!isAuthenticated && !validating) {
         // Redirect to login, saving the attempted URL
         return <Navigate to="/login" state={{ from: location }} replace />;
     }
 
+    // Render children immediately - navbar shows with cached user data
     return children;
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getDatasets, getAnomalies, getAlertHistory } from '../services/api';
+import { getCachedDatasets, getCachedAnomalies, getCachedAlertHistory } from '../services/cachedApi';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Database, AlertTriangle, Bell, TrendingUp, LayoutDashboard } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -18,19 +18,19 @@ function Dashboard() {
 
   const loadData = async () => {
     try {
-      const [datasetsRes, anomaliesRes, alertsRes] = await Promise.all([
-        getDatasets(),
-        getAnomalies(168, null, 100),
-        getAlertHistory(168),
+      const [datasets, anomalies, alerts] = await Promise.all([
+        getCachedDatasets(),
+        getCachedAnomalies(168, null, 100),
+        getCachedAlertHistory(168),
       ]);
 
       setStats({
-        datasets: datasetsRes.data?.length || 0,
-        anomalies: anomaliesRes.data?.length || 0,
-        alerts: alertsRes.data?.length || 0,
+        datasets: datasets?.length || 0,
+        anomalies: anomalies?.length || 0,
+        alerts: alerts?.length || 0,
       });
 
-      const severityCount = (anomaliesRes.data || []).reduce((acc, a) => {
+      const severityCount = (anomalies || []).reduce((acc, a) => {
         acc[a.severity] = (acc[a.severity] || 0) + 1;
         return acc;
       }, {});
@@ -53,15 +53,6 @@ function Dashboard() {
     INFO: '#1976d2',
   };
 
-  if (loading) {
-    return <LoadingSpinner message="Loading dashboard..." />;
-  }
-
-  // Show Getting Started guide if no datasets exist
-  if (stats.datasets === 0) {
-    return <GettingStarted />;
-  }
-
   return (
     <div className="dashboard">
       <PageHeader
@@ -70,7 +61,13 @@ function Dashboard() {
         icon={LayoutDashboard}
       />
 
-      <div className="stats-grid">
+      {loading ? (
+        <LoadingSpinner message="Loading dashboard..." />
+      ) : stats.datasets === 0 ? (
+        <GettingStarted />
+      ) : (
+        <>
+          <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon datasets">
             <Database size={24} />
@@ -144,6 +141,8 @@ function Dashboard() {
           )}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

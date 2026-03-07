@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, MarkerType } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { getDatasets, getLineageGraph } from '../services/api';
+import { getCachedDatasets, getCachedLineageGraph } from '../services/cachedApi';
 import { GitBranch, ChevronDown, ArrowRight, Loader2, Database, Copy, Check } from 'lucide-react';
 import { getLayoutedElements } from '../utils/layoutGraph';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -31,20 +31,39 @@ function Lineage() {
   const [copiedPath, setCopiedPath] = useState(null);
 
   useEffect(() => {
-    loadDatasets();
+    loadInitialData();
   }, []);
 
-  const loadDatasets = async () => {
+  const loadInitialData = async () => {
     try {
-      const res = await getDatasets();
-      const datasetList = res.data || [];
-      setDatasets(datasetList);
-      if (datasetList.length > 0) {
-        setSelectedDataset(datasetList[0].name);
-        loadLineage(datasetList[0].name);
+      const lastSelected = localStorage.getItem('lastSelectedDataset');
+
+      if (lastSelected) {
+        // Parallel loading with last selected dataset
+        const [datasetList, lineageData] = await Promise.all([
+          getCachedDatasets(),
+          getCachedLineageGraph(lastSelected).catch(() => null)
+        ]);
+
+        setDatasets(datasetList);
+        if (datasetList.some(d => d.name === lastSelected)) {
+          setSelectedDataset(lastSelected);
+          setLineageData(lineageData);
+        } else if (datasetList.length > 0) {
+          setSelectedDataset(datasetList[0].name);
+          loadLineage(datasetList[0].name);
+        }
+      } else {
+        // Fallback to sequential
+        const datasetList = await getCachedDatasets();
+        setDatasets(datasetList);
+        if (datasetList.length > 0) {
+          setSelectedDataset(datasetList[0].name);
+          loadLineage(datasetList[0].name);
+        }
       }
     } catch (error) {
-      console.error('Failed to load datasets:', error);
+      console.error('Failed to load data:', error);
       setDatasets([]);
     }
     setInitialLoading(false);
@@ -53,8 +72,8 @@ function Lineage() {
   const loadLineage = async (datasetName) => {
     setLoading(true);
     try {
-      const res = await getLineageGraph(datasetName);
-      setLineageData(res.data);
+      const lineageData = await getCachedLineageGraph(datasetName);
+      setLineageData(lineageData);
     } catch (error) {
       console.error('Failed to load lineage:', error);
       setLineageData(null);
@@ -286,28 +305,6 @@ function Lineage() {
     };
   }, [lineageData]);
 
-  if (initialLoading) {
-    return <LoadingSpinner message="Loading datasets..." />;
-  }
-
-  if (datasets.length === 0) {
-    return (
-      <div className="lineage">
-        <div className="page-header">
-          <div className="header-content">
-            <h2>Data Lineage</h2>
-            <p>Visualize data flow and dependencies</p>
-          </div>
-        </div>
-        <div className="empty-state">
-          <GitBranch size={48} strokeWidth={1.5} />
-          <h3>No datasets found</h3>
-          <p>Run a Spark job to capture data lineage.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="lineage">
       <PageHeader
@@ -315,31 +312,45 @@ function Lineage() {
         description="Visualize data flow and dependencies"
         icon={GitBranch}
       >
-        <div className="dataset-selector">
-          <label>Select Dataset</label>
-          <div className="select-wrapper">
-            <select
-              value={selectedDataset}
-              onChange={(e) => {
-                setSelectedDataset(e.target.value);
-                loadLineage(e.target.value);
-              }}
-            >
-              {datasets.map((d) => {
-                const { bucket, displayName } = parseDatasetName(d.name);
-                return (
-                  <option key={d.id} value={d.name}>
-                    {bucket ? `${displayName} (${bucket})` : displayName}
-                  </option>
-                );
-              })}
-            </select>
-            <ChevronDown size={18} className="select-icon" />
+        {!initialLoading && datasets.length > 0 && (
+          <div className="dataset-selector">
+            <label>Select Dataset</label>
+            <div className="select-wrapper">
+              <select
+                value={selectedDataset}
+                onChange={(e) => {
+                  const datasetName = e.target.value;
+                  setSelectedDataset(datasetName);
+                  localStorage.setItem('lastSelectedDataset', datasetName);
+                  loadLineage(datasetName);
+                }}
+              >
+                {datasets.map((d) => {
+                  const { bucket, displayName } = parseDatasetName(d.name);
+                  return (
+                    <option key={d.id} value={d.name}>
+                      {bucket ? `${displayName} (${bucket})` : displayName}
+                    </option>
+                  );
+                })}
+              </select>
+              <ChevronDown size={18} className="select-icon" />
+            </div>
           </div>
-        </div>
+        )}
       </PageHeader>
 
-      <div className="lineage-info-bar">
+      {initialLoading ? (
+        <LoadingSpinner message="Loading datasets..." />
+      ) : datasets.length === 0 ? (
+        <div className="empty-state">
+          <GitBranch size={48} strokeWidth={1.5} />
+          <h3>No datasets found</h3>
+          <p>Run a Spark job to capture data lineage.</p>
+        </div>
+      ) : (
+        <>
+          <div className="lineage-info-bar">
         <div className="lineage-legend">
           <div className="legend-item">
             <span className="legend-dot upstream"></span>
@@ -407,6 +418,8 @@ function Lineage() {
             />
           </ReactFlow>
         </div>
+      )}
+        </>
       )}
     </div>
   );

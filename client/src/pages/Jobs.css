@@ -12,7 +12,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1.5rem;
+  margin-bottom: 2rem;
 }
 
 .jobs-header h2 {
@@ -27,7 +27,7 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 2rem;
 }
 
 .jobs-stat-card {
@@ -167,7 +167,7 @@
 }
 
 .jobs-table th {
-  padding: 0.75rem 1rem;
+  padding: 1rem;
   text-align: left;
   font-size: 0.8rem;
   font-weight: 600;
@@ -195,7 +195,7 @@
 }
 
 .jobs-table td {
-  padding: 0.75rem 1rem;
+  padding: 1rem;
   font-size: 0.875rem;
   color: var(--text-primary);
   border-bottom: 1px solid var(--border);
@@ -534,10 +534,151 @@
   to { transform: rotate(360deg); }
 }
 
+/* ============ Metric Cards Grid ============ */
+.jobs-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.jobs-metric-card {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.jobs-metric-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.jobs-metric-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.jobs-metric-icon.success {
+  background: rgba(72, 187, 120, 0.15);
+  color: #48bb78;
+}
+
+.jobs-metric-icon.warning {
+  background: rgba(237, 137, 54, 0.15);
+  color: #ed8936;
+}
+
+.jobs-metric-icon.critical {
+  background: rgba(252, 129, 129, 0.15);
+  color: #fc8181;
+}
+
+.jobs-metric-icon.info {
+  background: rgba(102, 126, 234, 0.15);
+  color: #667eea;
+}
+
+.jobs-metric-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.jobs-metric-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ============ Job Metrics Table ============ */
+.jobs-metrics-sections {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.jobs-metrics-section {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 1rem;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+}
+
+.jobs-metrics-section h4 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.jobs-metrics-table {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.jobs-metrics-table td.label {
+  color: var(--text-muted);
+  padding: 0.35rem 0;
+  font-weight: 400;
+}
+
+.jobs-metrics-table td.value {
+  color: var(--text-primary);
+  font-weight: 500;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 0.35rem 0;
+}
+
+.jobs-metrics-table tr.highlight td.value {
+  color: #fc8181;
+  font-weight: 600;
+}
+
+/* Update signals section title to match new design */
+.jobs-signals {
+  margin-bottom: 1.5rem;
+}
+
+.jobs-signals-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 1rem;
+}
+
+/* Highlight dangerous values (failed tasks) */
+.jobs-table td.highlight-danger {
+  color: #fc8181;
+  font-weight: 600;
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .jobs-charts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .jobs-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
@@ -547,6 +688,16 @@
   }
 
   .jobs-signals-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .jobs-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-metrics-sections {
     grid-template-columns: 1fr;
   }
 }

@@ -141,23 +141,47 @@ class ObservabilityApiClient(
     // Build execution_metrics (job-level performance data)
     val execMetrics = metadata.metrics
     val executionMetricsJson = s"""{
+      |    "rows_read": ${execMetrics.rowsRead.getOrElse(0)},
+      |    "rows_written": ${execMetrics.rowsWritten.getOrElse(0)},
+      |    "bytes_read": ${execMetrics.bytesRead.getOrElse(0)},
+      |    "bytes_written": ${execMetrics.bytesWritten.getOrElse(0)},
+      |    "execution_time_ms": ${execMetrics.executionTimeMs.getOrElse(0)},
+      |    "total_tasks": ${execMetrics.totalTasks.getOrElse(0)},
+      |    "failed_tasks": ${execMetrics.failedTasks.getOrElse(0)},
+      |    "shuffle_read_bytes": ${execMetrics.shuffleReadBytes.getOrElse(0)},
+      |    "shuffle_write_bytes": ${execMetrics.shuffleWriteBytes.getOrElse(0)},
       |    "executor_cpu_time_ns": ${execMetrics.executorCpuTimeNs.getOrElse(0)},
-      |    "executor_run_time_ms": ${execMetrics.executionTimeMs.getOrElse(0)},
+      |    "jvm_gc_time_ms": ${execMetrics.jvmGcTimeMs.getOrElse(0)},
+      |    "executor_deserialize_time_ms": ${execMetrics.executorDeserializeTimeMs.getOrElse(0)},
+      |    "executor_deserialize_cpu_time_ns": ${execMetrics.executorDeserializeCpuTimeNs.getOrElse(0)},
+      |    "result_serialization_time_ms": ${execMetrics.resultSerializationTimeMs.getOrElse(0)},
+      |    "result_size_bytes": ${execMetrics.resultSizeBytes.getOrElse(0)},
       |    "memory_bytes_spilled": ${execMetrics.memoryBytesSpilled.getOrElse(0)},
       |    "disk_bytes_spilled": ${execMetrics.diskBytesSpilled.getOrElse(0)},
       |    "peak_execution_memory": ${execMetrics.peakExecutionMemory.getOrElse(0)},
-      |    "shuffle_read_bytes": ${execMetrics.shuffleReadBytes.getOrElse(0)},
-      |    "shuffle_write_bytes": ${execMetrics.shuffleWriteBytes.getOrElse(0)},
-      |    "jvm_gc_time_ms": ${execMetrics.jvmGcTimeMs.getOrElse(0)},
-      |    "total_tasks": ${execMetrics.totalTasks.getOrElse(0)},
-      |    "failed_tasks": ${execMetrics.failedTasks.getOrElse(0)}
+      |    "shuffle_remote_bytes_read": ${execMetrics.shuffleRemoteBytesRead.getOrElse(0)},
+      |    "shuffle_local_bytes_read": ${execMetrics.shuffleLocalBytesRead.getOrElse(0)},
+      |    "shuffle_remote_bytes_read_to_disk": ${execMetrics.shuffleRemoteBytesReadToDisk.getOrElse(0)},
+      |    "shuffle_fetch_wait_time_ms": ${execMetrics.shuffleFetchWaitTimeMs.getOrElse(0)},
+      |    "shuffle_records_read": ${execMetrics.shuffleRecordsRead.getOrElse(0)},
+      |    "shuffle_remote_blocks_fetched": ${execMetrics.shuffleRemoteBlocksFetched.getOrElse(0)},
+      |    "shuffle_local_blocks_fetched": ${execMetrics.shuffleLocalBlocksFetched.getOrElse(0)},
+      |    "shuffle_write_time_ns": ${execMetrics.shuffleWriteTimeNs.getOrElse(0)},
+      |    "shuffle_records_written": ${execMetrics.shuffleRecordsWritten.getOrElse(0)}
       |  }""".stripMargin
     
+    // Format timestamps as ISO 8601 (e.g., "2024-01-15T10:30:00Z")
+    val dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    val startedAtStr = dateFormat.format(metadata.startTime)
+    val endedAtStr = metadata.endTime.map(dateFormat.format).getOrElse(startedAtStr)
+
     val payload = s"""{
       |  "api_version": "1.0",
       |  "job_id": "${metadata.jobId}",
       |  "job_name": ${metadata.jobName.map(n => s""""$n"""").getOrElse("null")},
       |  "application_id": ${metadata.applicationId.map(id => s""""$id"""").getOrElse("null")},
+      |  "started_at": "$startedAtStr",
+      |  "ended_at": "$endedAtStr",
       |  "inputs": [$inputsJson],
       |  "outputs": [$outputsJson],
       |  "lineage_edges": [$edgesJson],

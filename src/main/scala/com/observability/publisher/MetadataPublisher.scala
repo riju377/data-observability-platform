@@ -176,9 +176,12 @@ object MetadataPublisher extends LazyLogging {
   def shutdown(): Unit = {
     logger.info("Shutting down async publisher, draining pending calls...")
     executor.shutdown()
-    if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+    // Wait up to 2 minutes for HTTP requests to complete
+    // Render free tier cold starts can take 30-60s (backend + database wake up)
+    // Once response is received, we exit immediately (don't wait full 2 min)
+    if (!executor.awaitTermination(120, TimeUnit.SECONDS)) {
       val dropped = executor.shutdownNow().size()
-      logger.warn(s"Publisher did not drain in 30s, dropped $dropped pending calls")
+      logger.warn(s"Publisher did not drain in 120s, dropped $dropped pending calls")
     } else {
       logger.debug("Async publisher shut down cleanly")
     }

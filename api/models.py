@@ -523,19 +523,9 @@ class Job(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    # Computed fields for backward compatibility
-    @property
-    def duration_ms(self) -> Optional[int]:
-        if self.started_at and self.ended_at:
-            return int((self.ended_at - self.started_at).total_seconds() * 1000)
-        return None
-
-    @property
-    def application_id(self) -> Optional[str]:
-        if self.metadata and isinstance(self.metadata, dict):
-            # Casting to str or checking if key exists
-            return self.metadata.get("application_id")
-        return None
+    # Computed fields (now set directly from SQL queries)
+    duration_ms: Optional[int] = None
+    application_id: Optional[str] = None
 
     @property
     def job_id(self) -> str:

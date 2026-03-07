@@ -775,6 +775,46 @@
   flex-shrink: 0;
 }
 
+/* Metrics Section */
+.metrics-section {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.metrics-section h4 {
+  margin: 0 0 0.875rem 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.metrics-grid-guide {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.625rem;
+}
+
+.metric-item-guide {
+  padding: 0.5rem 0.75rem;
+  background: var(--surface);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.metric-item-guide:hover {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+
 /* ===========================================
    Responsive Design
    =========================================== */
@@ -824,6 +864,10 @@
   }
 
   .captures-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics-grid-guide {
     grid-template-columns: 1fr;
   }
 

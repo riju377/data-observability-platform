@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recha
 import { Database, AlertTriangle, Bell, TrendingUp, LayoutDashboard } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
+import GettingStarted from '../components/GettingStarted';
 import './Dashboard.css';
 
 function Dashboard() {
@@ -54,6 +55,11 @@ function Dashboard() {
 
   if (loading) {
     return <LoadingSpinner message="Loading dashboard..." />;
+  }
+
+  // Show Getting Started guide if no datasets exist
+  if (stats.datasets === 0) {
+    return <GettingStarted />;
   }
 
   return (

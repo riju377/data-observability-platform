@@ -1,13 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, Cell
-} from 'recharts';
-import {
   Loader2, Zap, CheckCircle, Clock, XCircle, ArrowLeft,
   AlertTriangle, AlertOctagon, Info, ThumbsUp, Search
 } from 'lucide-react';
-import { getJobs, getJob, getJobStages, getJobsSummary } from '../services/api';
+import { getJobs, getJob, getJobsSummary } from '../services/api';
 import './Jobs.css';
 
 // ─── Utility Functions ───────────────────────────────
@@ -54,150 +50,169 @@ function formatRelativeTime(dateStr) {
   return `${days}d ago`;
 }
 
-const TOOLTIP_STYLE = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: '8px',
-  boxShadow: 'var(--shadow-md)',
-};
+// ─── Metric Helpers ──────────────────────────────────
+
+function getMetric(job, key, defaultValue = 0) {
+  if (!job || !job.execution_metrics) return defaultValue;
+  const val = job.execution_metrics[key];
+  return val != null ? val : defaultValue;
+}
+
+function formatPercent(ratio) {
+  if (ratio == null || isNaN(ratio)) return '—';
+  return `${(ratio * 100).toFixed(1)}%`;
+}
+
+function calculateCpuUtilization(job) {
+  const cpuNs = getMetric(job, 'executorCpuTimeNs');
+  const execMs = getMetric(job, 'executionTimeMs') || job.duration_ms || 0;
+  if (execMs === 0 || cpuNs === 0) return null;
+  return cpuNs / (execMs * 1e6);
+}
+
+function calculateGcRatio(job) {
+  const gcMs = getMetric(job, 'jvmGcTimeMs');
+  const execMs = getMetric(job, 'executionTimeMs') || job.duration_ms || 0;
+  if (execMs === 0) return null;
+  return gcMs / execMs;
+}
+
+function calculateShuffleLocality(job) {
+  const remote = getMetric(job, 'shuffleRemoteBytesRead');
+  const local = getMetric(job, 'shuffleLocalBytesRead');
+  const total = remote + local;
+  if (total === 0) return null;
+  return local / total;
+}
 
 // ─── Optimization Signal Detection ───────────────────
 
-function analyzeOptimizationSignals(stages) {
+function analyzeOptimizationSignals(job) {
   const signals = [];
-  if (!stages || stages.length === 0) return signals;
+  const m = job.execution_metrics || {};
 
-  for (const stage of stages) {
-    const stageLabel = `Stage ${stage.stage_id ?? stage.stage_attempt_id ?? '?'}`;
+  if (!m || Object.keys(m).length === 0) return signals;
 
-    // Disk spill
-    if ((stage.disk_bytes_spilled || 0) > 0) {
+  // 1. Disk Spill (CRITICAL)
+  const diskSpill = m.diskBytesSpilled || 0;
+  if (diskSpill > 0) {
+    signals.push({
+      type: 'Disk Spill',
+      severity: 'critical',
+      stage: null,
+      message: `${formatBytes(diskSpill)} spilled to disk during job execution`,
+      recommendation: 'Critical: Increase spark.executor.memory or reduce partition size to avoid expensive disk I/O.',
+    });
+  }
+
+  // 2. Memory Spill (WARNING)
+  const memSpill = m.memoryBytesSpilled || 0;
+  if (memSpill > 0 && diskSpill === 0) {
+    signals.push({
+      type: 'Memory Spill',
+      severity: 'warning',
+      stage: null,
+      message: `${formatBytes(memSpill)} spilled from memory (remained in-memory)`,
+      recommendation: 'Consider increasing spark.executor.memory or reducing data skew.',
+    });
+  }
+
+  // 3. GC Pressure (CRITICAL/WARNING)
+  const execTimeMs = m.executionTimeMs || job.duration_ms || 0;
+  const gcTimeMs = m.jvmGcTimeMs || 0;
+  if (execTimeMs > 0) {
+    const gcRatio = gcTimeMs / execTimeMs;
+    if (gcRatio > 0.25) {
       signals.push({
-        type: 'Disk Spill',
+        type: 'GC Pressure',
         severity: 'critical',
-        stage: stageLabel,
-        message: `${stageLabel}: ${formatBytes(stage.disk_bytes_spilled)} spilled to disk`,
-        recommendation: 'Increase executor memory or reduce partition size to avoid disk spill.',
+        stage: null,
+        message: `GC time is ${(gcRatio * 100).toFixed(1)}% of total execution time`,
+        recommendation: 'Critical: Increase executor memory significantly or tune GC settings (use G1GC).',
       });
-    }
-
-    // Memory spill (only if no disk spill)
-    if ((stage.memory_bytes_spilled || 0) > 0 && (stage.disk_bytes_spilled || 0) === 0) {
+    } else if (gcRatio > 0.10) {
       signals.push({
-        type: 'Memory Spill',
+        type: 'GC Pressure',
         severity: 'warning',
-        stage: stageLabel,
-        message: `${stageLabel}: ${formatBytes(stage.memory_bytes_spilled)} memory spill detected`,
-        recommendation: 'Consider increasing spark.executor.memory or reducing data skew.',
+        stage: null,
+        message: `GC time is ${(gcRatio * 100).toFixed(1)}% of execution time`,
+        recommendation: 'Monitor GC trends. Consider increasing executor memory if pattern persists.',
       });
     }
+  }
 
-    // GC pressure
-    const runTime = stage.executor_run_time_ms || 0;
-    const gcTime = stage.jvm_gc_time_ms || 0;
-    if (runTime > 0) {
-      const gcRatio = gcTime / runTime;
-      if (gcRatio > 0.25) {
-        signals.push({
-          type: 'GC Pressure',
-          severity: 'critical',
-          stage: stageLabel,
-          message: `${stageLabel}: GC time is ${(gcRatio * 100).toFixed(1)}% of run time`,
-          recommendation: 'Increase executor memory or tune GC settings (G1GC, heap ratios).',
-        });
-      } else if (gcRatio > 0.10) {
-        signals.push({
-          type: 'GC Pressure',
-          severity: 'warning',
-          stage: stageLabel,
-          message: `${stageLabel}: GC time is ${(gcRatio * 100).toFixed(1)}% of run time`,
-          recommendation: 'Monitor GC trends. Consider increasing executor memory if worsening.',
-        });
-      }
+  // 4. CPU Underutilization (WARNING/INFO)
+  const cpuNs = m.executorCpuTimeNs || 0;
+  if (execTimeMs > 0 && cpuNs > 0) {
+    const cpuRatio = cpuNs / (execTimeMs * 1e6);
+    if (cpuRatio < 0.25) {
+      signals.push({
+        type: 'CPU Underutilization',
+        severity: 'warning',
+        stage: null,
+        message: `CPU utilization is only ${(cpuRatio * 100).toFixed(1)}%`,
+        recommendation: 'Tasks are I/O bound. Check shuffle latency, data source performance, or increase parallelism.',
+      });
+    } else if (cpuRatio < 0.50) {
+      signals.push({
+        type: 'CPU Underutilization',
+        severity: 'info',
+        stage: null,
+        message: `CPU utilization is ${(cpuRatio * 100).toFixed(1)}%`,
+        recommendation: 'Consider increasing parallelism or investigating I/O bottlenecks.',
+      });
     }
+  }
 
-    // CPU underutilization
-    const cpuNs = stage.executor_cpu_time_ns || 0;
-    const runMs = stage.executor_run_time_ms || 0;
-    if (runMs > 0 && cpuNs > 0) {
-      const cpuRatio = cpuNs / (runMs * 1e6);
-      if (cpuRatio < 0.25) {
-        signals.push({
-          type: 'CPU Underutil',
-          severity: 'warning',
-          stage: stageLabel,
-          message: `${stageLabel}: CPU utilization is only ${(cpuRatio * 100).toFixed(1)}%`,
-          recommendation: 'Tasks may be I/O bound. Check shuffle read or data source latency.',
-        });
-      } else if (cpuRatio < 0.50) {
-        signals.push({
-          type: 'CPU Underutil',
-          severity: 'info',
-          stage: stageLabel,
-          message: `${stageLabel}: CPU utilization is ${(cpuRatio * 100).toFixed(1)}%`,
-          recommendation: 'Consider increasing parallelism or checking for I/O bottlenecks.',
-        });
-      }
+  // 5. Shuffle Locality (WARNING/INFO)
+  const remoteRead = m.shuffleRemoteBytesRead || 0;
+  const localRead = m.shuffleLocalBytesRead || 0;
+  const totalRead = remoteRead + localRead;
+  if (totalRead > 0) {
+    const remoteRatio = remoteRead / totalRead;
+    if (remoteRatio > 0.95) {
+      signals.push({
+        type: 'Shuffle Locality',
+        severity: 'warning',
+        stage: null,
+        message: `${(remoteRatio * 100).toFixed(1)}% of shuffle reads are remote (network-bound)`,
+        recommendation: 'Poor data locality. Enable locality-aware scheduling or increase replication factor.',
+      });
+    } else if (remoteRatio > 0.80) {
+      signals.push({
+        type: 'Shuffle Locality',
+        severity: 'info',
+        stage: null,
+        message: `${(remoteRatio * 100).toFixed(1)}% of shuffle reads are remote`,
+        recommendation: 'Consider co-locating data or adjusting shuffle partition count.',
+      });
     }
+  }
 
-    // Shuffle skew (remote vs total read)
-    const remoteRead = (stage.shuffle_remote_bytes_read || 0);
-    const localRead = (stage.shuffle_local_bytes_read || 0);
-    const totalRead = remoteRead + localRead;
-    if (totalRead > 0) {
-      const remoteRatio = remoteRead / totalRead;
-      if (remoteRatio > 0.95) {
-        signals.push({
-          type: 'Shuffle Skew',
-          severity: 'warning',
-          stage: stageLabel,
-          message: `${stageLabel}: ${(remoteRatio * 100).toFixed(1)}% of shuffle reads are remote`,
-          recommendation: 'Enable locality-aware scheduling or increase data replication.',
-        });
-      } else if (remoteRatio > 0.80) {
-        signals.push({
-          type: 'Shuffle Skew',
-          severity: 'info',
-          stage: stageLabel,
-          message: `${stageLabel}: ${(remoteRatio * 100).toFixed(1)}% of shuffle reads are remote`,
-          recommendation: 'Consider co-locating data or adjusting shuffle partitions.',
-        });
-      }
-    }
+  // 6. Failed Tasks (CRITICAL)
+  const failedTasks = m.failedTasks || 0;
+  const totalTasks = m.totalTasks || 0;
+  if (failedTasks > 0) {
+    const failRate = totalTasks > 0 ? (failedTasks / totalTasks * 100) : 0;
+    signals.push({
+      type: 'Task Failures',
+      severity: 'critical',
+      stage: null,
+      message: `${failedTasks} out of ${totalTasks} tasks failed (${failRate.toFixed(1)}%)`,
+      recommendation: 'Review executor logs for OutOfMemory errors, data corruption, or resource contention.',
+    });
   }
 
   return signals;
 }
 
-const SIGNAL_ICONS = {
-  critical: AlertOctagon,
-  warning: AlertTriangle,
-  info: Info,
-};
-
 // ─── Time Window Options ─────────────────────────────
 
 const TIME_WINDOWS = [
-  { label: '6h', hours: 6 },
-  { label: '12h', hours: 12 },
   { label: '24h', hours: 24 },
-  { label: '48h', hours: 48 },
   { label: '7d', hours: 168 },
-];
-
-// ─── Chart Colors ────────────────────────────────────
-
-const BREAKDOWN_COLORS = {
-  compute: '#667eea',
-  gc: '#fc8181',
-  deserialization: '#ed8936',
-  shuffleWait: '#63b3ed',
-  serialization: '#a0aec0',
-};
-
-const DURATION_BAR_COLORS = [
-  '#667eea', '#48bb78', '#ed8936', '#fc8181', '#9f7aea',
-  '#38b2ac', '#f6ad55', '#63b3ed', '#e53e3e', '#68d391',
+  { label: '30d', hours: 720 },
+  { label: '90d', hours: 2160 },
 ];
 
 // ─── Main Component ──────────────────────────────────
@@ -206,7 +221,8 @@ function Jobs() {
   // List view state
   const [jobs, setJobs] = useState([]);
   const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   const [nameSearch, setNameSearch] = useState('');
   const [timeWindow, setTimeWindow] = useState(24);
@@ -215,15 +231,27 @@ function Jobs() {
 
   // Detail view state
   const [selectedJob, setSelectedJob] = useState(null);
-  const [stages, setStages] = useState([]);
-  const [stagesLoading, setStagesLoading] = useState(false);
+
+  // Onboarding banner state
+  const [bannerDismissed, setBannerDismissed] = useState(() => {
+    return localStorage.getItem('onboarding-banner-dismissed') === 'true';
+  });
 
   // Debounce ref
   const debounceRef = useRef(null);
 
+  const dismissBanner = () => {
+    setBannerDismissed(true);
+    localStorage.setItem('onboarding-banner-dismissed', 'true');
+  };
+
   // ── Load list data ──
-  const loadListData = useCallback(async (status, name, hours) => {
-    setLoading(true);
+  const loadListData = useCallback(async (status, name, hours, isInitial = false) => {
+    if (isInitial) {
+      setInitialLoading(true);
+    } else {
+      setTableLoading(true);
+    }
     try {
       const [jobsRes, summaryRes] = await Promise.all([
         getJobs(status || null, name || null, hours),
@@ -236,14 +264,21 @@ function Jobs() {
       setJobs([]);
       setSummary({});
     } finally {
-      setLoading(false);
+      if (isInitial) {
+        setInitialLoading(false);
+      } else {
+        setTableLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     if (!selectedJob) {
-      loadListData(statusFilter, nameSearch, timeWindow);
+      // First load is initial, subsequent loads from filter changes are not
+      const isInitial = initialLoading;
+      loadListData(statusFilter, nameSearch, timeWindow, isInitial);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, timeWindow, selectedJob, loadListData]);
 
   // Debounced name search
@@ -251,28 +286,17 @@ function Jobs() {
     setNameSearch(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      loadListData(statusFilter, value, timeWindow);
+      loadListData(statusFilter, value, timeWindow, false);
     }, 300);
   };
 
   // ── Load detail data ──
-  const openJobDetail = async (job) => {
+  const openJobDetail = (job) => {
     setSelectedJob(job);
-    setStagesLoading(true);
-    try {
-      const res = await getJobStages(job.id);
-      setStages(res.data || []);
-    } catch (err) {
-      console.error('Failed to load stages:', err);
-      setStages([]);
-    } finally {
-      setStagesLoading(false);
-    }
   };
 
   const closeDetail = () => {
     setSelectedJob(null);
-    setStages([]);
   };
 
   // ── Sorting ──
@@ -297,11 +321,12 @@ function Jobs() {
 
   // ── Render ──
   if (selectedJob) {
-    return <DetailView job={selectedJob} stages={stages} stagesLoading={stagesLoading} onBack={closeDetail} />;
+    return <DetailView job={selectedJob} onBack={closeDetail} />;
   }
 
   return <ListView
-    loading={loading}
+    initialLoading={initialLoading}
+    tableLoading={tableLoading}
     summary={summary}
     jobs={sortedJobs}
     statusFilter={statusFilter}
@@ -314,17 +339,21 @@ function Jobs() {
     sortDir={sortDir}
     handleSort={handleSort}
     onSelectJob={openJobDetail}
+    bannerDismissed={bannerDismissed}
+    dismissBanner={dismissBanner}
   />;
 }
 
 // ─── List View ───────────────────────────────────────
 
 function ListView({
-  loading, summary, jobs, statusFilter, setStatusFilter,
+  initialLoading, tableLoading, summary, jobs, statusFilter, setStatusFilter,
   nameSearch, handleNameSearch, timeWindow, setTimeWindow,
   sortField, sortDir, handleSort, onSelectJob,
+  bannerDismissed, dismissBanner,
 }) {
-  if (loading) {
+  // Full-page loading only on initial load
+  if (initialLoading) {
     return (
       <div className="jobs-loading">
         <Loader2 className="jobs-loading-spinner" size={32} />
@@ -334,18 +363,20 @@ function ListView({
   }
 
   const totalJobs = summary?.total_jobs ?? 0;
-  const successRate = summary?.success_rate != null ? `${Number(summary.success_rate).toFixed(1)}%` : '—';
-  const avgDuration = formatDuration(summary?.avg_duration_ms);
+  const successCount = summary?.success_count ?? 0;
   const failedCount = summary?.failed_count ?? 0;
+  const showOnboarding = totalJobs === 0;
+  const showBanner = !bannerDismissed; // Show banner to new users even if org has jobs
 
   const columns = [
     { key: 'job_name', label: 'Job Name' },
     { key: 'status', label: 'Status' },
-    { key: 'started_at', label: 'Started' },
+    { key: 'started_at', label: 'Last Run' },
     { key: 'duration_ms', label: 'Duration' },
     { key: 'total_tasks', label: 'Tasks' },
-    { key: 'shuffle_read_bytes', label: 'Shuffle Read' },
-    { key: 'shuffle_write_bytes', label: 'Shuffle Write' },
+    { key: 'rows_written', label: 'Rows Written' },
+    { key: 'bytes_written', label: 'Data Written' },
+    { key: 'failed_tasks', label: 'Failures' },
   ];
 
   return (
@@ -353,6 +384,63 @@ function ListView({
       <div className="jobs-header">
         <h2>Jobs</h2>
       </div>
+
+      {/* Onboarding Banner */}
+      {showBanner && (
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          padding: '1.5rem',
+          borderRadius: '8px',
+          marginBottom: '2rem',
+          position: 'relative',
+        }}>
+          <button
+            onClick={dismissBanner}
+            style={{
+              position: 'absolute',
+              top: '1rem',
+              right: '1rem',
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              color: 'white',
+              borderRadius: '4px',
+              padding: '0.25rem 0.5rem',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+            }}
+          >
+            ✕
+          </button>
+          <h3 style={{ margin: '0 0 1rem 0', fontSize: '1.25rem', fontWeight: 600 }}>
+            🚀 Get Started with Data Observability
+          </h3>
+          <div style={{ fontSize: '0.875rem', lineHeight: '1.6' }}>
+            <p style={{ margin: '0 0 0.75rem 0' }}>
+              <strong>Step 1:</strong> Get your API key → <a href="/api-keys" style={{ color: 'white', textDecoration: 'underline' }}>Go to API Keys</a>
+            </p>
+            <p style={{ margin: '0 0 0.75rem 0' }}>
+              <strong>Step 2:</strong> Add to your Spark job:
+            </p>
+            <pre style={{
+              background: 'rgba(0, 0, 0, 0.2)',
+              padding: '0.75rem',
+              borderRadius: '4px',
+              fontSize: '0.8125rem',
+              overflow: 'auto',
+              margin: '0 0 0.75rem 0',
+            }}>
+{`spark-submit \\
+  --conf spark.extraListeners=com.observability.listener.ObservabilityListener \\
+  --conf spark.observability.api.key="your_api_key_here" \\
+  your-job.jar`}
+            </pre>
+            <p style={{ margin: 0 }}>
+              <strong>Step 3:</strong> Run your job and metrics will appear here automatically!
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="jobs-stats">
@@ -366,15 +454,8 @@ function ListView({
         <div className="jobs-stat-card">
           <div className="jobs-stat-icon success"><CheckCircle size={22} /></div>
           <div>
-            <div className="jobs-stat-value">{successRate}</div>
-            <div className="jobs-stat-label">Success Rate</div>
-          </div>
-        </div>
-        <div className="jobs-stat-card">
-          <div className="jobs-stat-icon duration"><Clock size={22} /></div>
-          <div>
-            <div className="jobs-stat-value">{avgDuration}</div>
-            <div className="jobs-stat-label">Avg Duration</div>
+            <div className="jobs-stat-value">{formatNumber(successCount)}</div>
+            <div className="jobs-stat-label">Success</div>
           </div>
         </div>
         <div className="jobs-stat-card">
@@ -398,7 +479,6 @@ function ListView({
           <option value="">All Statuses</option>
           <option value="SUCCESS">Success</option>
           <option value="FAILED">Failed</option>
-          <option value="RUNNING">Running</option>
         </select>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <Search size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
@@ -425,11 +505,57 @@ function ListView({
       </div>
 
       {/* Table */}
-      <div className="jobs-table-container">
+      <div className="jobs-table-container" style={{ position: 'relative' }}>
+        {tableLoading && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+            borderRadius: '8px',
+          }}>
+            <Loader2 className="jobs-loading-spinner" size={24} />
+          </div>
+        )}
         {jobs.length === 0 ? (
           <div className="jobs-empty">
-            <Zap size={48} strokeWidth={1.5} />
-            <p>No jobs found for the selected filters</p>
+            {showOnboarding ? (
+              <>
+                <Zap size={64} strokeWidth={1.5} style={{ color: '#667eea', marginBottom: '1rem' }} />
+                <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.25rem' }}>
+                  No Jobs Yet
+                </h3>
+                <p style={{ color: 'var(--text-muted)', margin: '0 0 1.5rem 0', maxWidth: '500px' }}>
+                  Start tracking your Spark jobs by configuring the observability listener.
+                  Get your API key and add it to your Spark configuration.
+                </p>
+                <a
+                  href="/api-keys"
+                  style={{
+                    display: 'inline-block',
+                    background: '#667eea',
+                    color: 'white',
+                    padding: '0.75rem 1.5rem',
+                    borderRadius: '6px',
+                    textDecoration: 'none',
+                    fontWeight: 500,
+                  }}
+                >
+                  Get Your API Key →
+                </a>
+              </>
+            ) : (
+              <>
+                <Zap size={48} strokeWidth={1.5} />
+                <p>No jobs found for the selected filters</p>
+              </>
+            )}
           </div>
         ) : (
           <table className="jobs-table">
@@ -460,9 +586,12 @@ function ListView({
                   </td>
                   <td>{formatRelativeTime(job.started_at)}</td>
                   <td>{formatDuration(job.duration_ms)}</td>
-                  <td>{formatNumber(job.total_tasks)}</td>
-                  <td>{formatBytes(job.shuffle_read_bytes)}</td>
-                  <td>{formatBytes(job.shuffle_write_bytes)}</td>
+                  <td>{formatNumber(getMetric(job, 'totalTasks'))}</td>
+                  <td>{formatNumber(getMetric(job, 'rowsWritten'))}</td>
+                  <td>{formatBytes(getMetric(job, 'bytesWritten'))}</td>
+                  <td className={getMetric(job, 'failedTasks') > 0 ? 'highlight-danger' : ''}>
+                    {formatNumber(getMetric(job, 'failedTasks'))}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -475,41 +604,36 @@ function ListView({
 
 // ─── Detail View ─────────────────────────────────────
 
-function DetailView({ job, stages, stagesLoading, onBack }) {
-  if (stagesLoading) {
+function DetailView({ job, onBack }) {
+  const metrics = job.execution_metrics || {};
+
+  // Handle missing metrics
+  if (!metrics || Object.keys(metrics).length === 0) {
     return (
-      <div className="jobs-loading">
-        <Loader2 className="jobs-loading-spinner" size={32} />
-        <span>Loading stage metrics...</span>
+      <div className="jobs-detail">
+        <div className="jobs-detail-header">
+          <button className="jobs-back-btn" onClick={onBack}>
+            <ArrowLeft size={16} /> Back
+          </button>
+          <h2 className="jobs-detail-title">{job.job_name || 'Unnamed Job'}</h2>
+        </div>
+        <div className="jobs-empty" style={{ marginTop: '2rem' }}>
+          <AlertTriangle size={48} strokeWidth={1.5} style={{ color: 'var(--text-muted)' }} />
+          <p>No execution metrics available for this job</p>
+          <small style={{ color: 'var(--text-muted)' }}>
+            This job may have been executed before metrics collection was enabled
+          </small>
+        </div>
       </div>
     );
   }
 
-  const signals = analyzeOptimizationSignals(stages);
+  const signals = analyzeOptimizationSignals(job);
 
-  // Chart A: Duration per stage
-  const durationData = stages.map((s) => ({
-    name: `Stage ${s.stage_id ?? '?'}`,
-    duration_ms: s.duration_ms || s.executor_run_time_ms || 0,
-  }));
-
-  // Chart B: Time breakdown per stage
-  const breakdownData = stages.map((s) => {
-    const runTime = s.executor_run_time_ms || 0;
-    const gcTime = s.jvm_gc_time_ms || 0;
-    const deserTime = s.executor_deserialize_time_ms || 0;
-    const shuffleWait = (s.shuffle_fetch_wait_time_ms || 0) + nsToMs(s.shuffle_write_time_ns || 0);
-    const serTime = s.result_serialization_time_ms || 0;
-    const compute = Math.max(0, runTime - gcTime);
-    return {
-      name: `Stage ${s.stage_id ?? '?'}`,
-      Compute: compute,
-      GC: gcTime,
-      Deserialization: deserTime,
-      'Shuffle Wait': shuffleWait,
-      Serialization: serTime,
-    };
-  });
+  // Calculate derived metrics for cards
+  const cpuUtil = calculateCpuUtilization(job);
+  const gcRatio = calculateGcRatio(job);
+  const shuffleLocality = calculateShuffleLocality(job);
 
   return (
     <div className="jobs-detail">
@@ -530,145 +654,158 @@ function DetailView({ job, stages, stagesLoading, onBack }) {
         </div>
       </div>
 
-      {/* Charts */}
-      <div className="jobs-charts-grid">
-        {/* Chart A: Duration per Stage */}
-        <div className="jobs-chart-card">
-          <h3 className="jobs-chart-title">Duration per Stage</h3>
-          {durationData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(200, durationData.length * 40)}>
-              <BarChart layout="vertical" data={durationData} margin={{ top: 5, right: 30, left: 60, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis
-                  type="number"
-                  tickFormatter={(v) => formatDuration(v)}
-                  stroke="var(--text-muted)"
-                  fontSize={12}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  stroke="var(--text-muted)"
-                  fontSize={12}
-                  width={80}
-                />
-                <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  formatter={(v) => formatDuration(v)}
-                />
-                <Bar dataKey="duration_ms" name="Duration" radius={[0, 4, 4, 0]}>
-                  {durationData.map((_, i) => (
-                    <Cell key={i} fill={DURATION_BAR_COLORS[i % DURATION_BAR_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="jobs-empty"><p>No stage data available</p></div>
-          )}
-        </div>
-
-        {/* Chart B: Time Breakdown */}
-        <div className="jobs-chart-card">
-          <h3 className="jobs-chart-title">Time Breakdown per Stage</h3>
-          {breakdownData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(200, breakdownData.length * 40)}>
-              <BarChart layout="vertical" data={breakdownData} margin={{ top: 5, right: 30, left: 60, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis
-                  type="number"
-                  tickFormatter={(v) => formatDuration(v)}
-                  stroke="var(--text-muted)"
-                  fontSize={12}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  stroke="var(--text-muted)"
-                  fontSize={12}
-                  width={80}
-                />
-                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => formatDuration(v)} />
-                <Legend />
-                <Bar dataKey="Compute" stackId="a" fill={BREAKDOWN_COLORS.compute} />
-                <Bar dataKey="GC" stackId="a" fill={BREAKDOWN_COLORS.gc} />
-                <Bar dataKey="Deserialization" stackId="a" fill={BREAKDOWN_COLORS.deserialization} />
-                <Bar dataKey="Shuffle Wait" stackId="a" fill={BREAKDOWN_COLORS.shuffleWait} />
-                <Bar dataKey="Serialization" stackId="a" fill={BREAKDOWN_COLORS.serialization} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="jobs-empty"><p>No stage data available</p></div>
-          )}
-        </div>
+      {/* Metric Cards Section */}
+      <div className="jobs-metrics-grid">
+        <MetricCard
+          title="CPU Efficiency"
+          value={cpuUtil ? formatPercent(cpuUtil) : '—'}
+          unit=""
+          icon={Zap}
+          severity={cpuUtil ? (cpuUtil > 0.7 ? 'success' : cpuUtil > 0.4 ? 'warning' : 'critical') : 'info'}
+        />
+        <MetricCard
+          title="GC Pressure"
+          value={gcRatio ? formatPercent(gcRatio) : '—'}
+          unit=""
+          icon={AlertTriangle}
+          severity={gcRatio ? (gcRatio > 0.25 ? 'critical' : gcRatio > 0.1 ? 'warning' : 'success') : 'info'}
+        />
+        <MetricCard
+          title="Shuffle Locality"
+          value={shuffleLocality ? formatPercent(shuffleLocality) : '—'}
+          unit=""
+          icon={CheckCircle}
+          severity={shuffleLocality ? (shuffleLocality > 0.5 ? 'success' : shuffleLocality > 0.2 ? 'warning' : 'critical') : 'info'}
+        />
+        <MetricCard
+          title="Peak Memory"
+          value={formatBytes(getMetric(job, 'peakExecutionMemory'))}
+          unit=""
+          icon={AlertOctagon}
+          severity="info"
+        />
       </div>
 
-      {/* I/O Table */}
-      <div className="jobs-io-section">
-        <h3>I/O per Stage</h3>
-        <table className="jobs-io-table">
-          <thead>
-            <tr>
-              <th>Stage</th>
-              <th>Tasks</th>
-              <th>Input</th>
-              <th>Input Records</th>
-              <th>Output</th>
-              <th>Shuffle Read</th>
-              <th>Shuffle Write</th>
-              <th>Peak Memory</th>
-            </tr>
-          </thead>
+      {/* Job Metrics Summary Table */}
+      <JobMetricsTable job={job} />
+
+      {/* Optimization Signals */}
+      {signals.length > 0 && (
+        <div className="jobs-signals">
+          <h3 className="jobs-signals-title">Optimization Signals</h3>
+          <div className="jobs-signals-grid">
+            {signals.map((sig, i) => (
+              <div key={i} className={`jobs-signal-card ${sig.severity}`}>
+                <div className="jobs-signal-header">
+                  <div className="jobs-signal-icon">
+                    {sig.severity === 'critical' && <AlertOctagon size={20} />}
+                    {sig.severity === 'warning' && <AlertTriangle size={20} />}
+                    {sig.severity === 'info' && <Info size={20} />}
+                  </div>
+                  <div>
+                    <div className="jobs-signal-type">{sig.type}</div>
+                    <span className={`jobs-signal-severity ${sig.severity}`}>{sig.severity}</span>
+                  </div>
+                </div>
+                <div className="jobs-signal-message">{sig.message}</div>
+                <div className="jobs-signal-recommendation">
+                  <strong>Recommendation:</strong> {sig.recommendation}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {signals.length === 0 && (
+        <div className="jobs-empty">
+          <ThumbsUp size={32} strokeWidth={1.5} style={{ color: '#48bb78' }} />
+          <p style={{ color: '#48bb78', fontWeight: 500 }}>No optimization issues detected</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Helper Components ───────────────────────────────
+
+function MetricCard({ title, value, unit, icon: Icon, severity }) {
+  return (
+    <div className="jobs-metric-card">
+      <div className={`jobs-metric-icon ${severity}`}>
+        <Icon size={20} />
+      </div>
+      <div>
+        <div className="jobs-metric-value">{value}{unit}</div>
+        <div className="jobs-metric-label">{title}</div>
+      </div>
+    </div>
+  );
+}
+
+function JobMetricsTable({ job }) {
+  const m = job.execution_metrics || {};
+
+  return (
+    <div className="jobs-metrics-sections">
+      {/* Data I/O Section */}
+      <div className="jobs-metrics-section">
+        <h4>Data I/O</h4>
+        <table className="jobs-metrics-table">
           <tbody>
-            {stages.map((s) => (
-                <tr key={s.stage_id ?? s.id}>
-                  <td>Stage {s.stage_id ?? '?'}</td>
-                  <td>{formatNumber(s.num_tasks)}</td>
-                  <td>{formatBytes(s.input_bytes)}</td>
-                  <td>{formatNumber(s.input_records)}</td>
-                  <td>{formatBytes(s.output_bytes)}</td>
-                  <td>{formatBytes(s.shuffle_read_bytes)}</td>
-                  <td>{formatBytes(s.shuffle_write_bytes)}</td>
-                  <td>{formatBytes(s.peak_execution_memory)}</td>
-                </tr>
-              ))}
-            {stages.length === 0 && (
-              <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No stage data</td></tr>
-            )}
+            <tr><td className="label">Rows Read</td><td className="value">{formatNumber(m.rowsRead)}</td></tr>
+            <tr><td className="label">Rows Written</td><td className="value">{formatNumber(m.rowsWritten)}</td></tr>
+            <tr><td className="label">Bytes Read</td><td className="value">{formatBytes(m.bytesRead)}</td></tr>
+            <tr><td className="label">Bytes Written</td><td className="value">{formatBytes(m.bytesWritten)}</td></tr>
           </tbody>
         </table>
       </div>
 
-      {/* Optimization Signals */}
-      <div className="jobs-signals-section">
-        <h3>Optimization Signals</h3>
-        {signals.length > 0 ? (
-          <div className="jobs-signals-grid">
-            {signals.map((sig, i) => {
-              const IconComp = SIGNAL_ICONS[sig.severity] || Info;
-              return (
-                <div key={i} className={`jobs-signal-card ${sig.severity}`}>
-                  <div className={`jobs-signal-icon ${sig.severity}`}>
-                    <IconComp size={20} />
-                  </div>
-                  <div className="jobs-signal-body">
-                    <div className="jobs-signal-header">
-                      <span className="jobs-signal-type">{sig.type}</span>
-                      <span className={`jobs-signal-severity ${sig.severity}`}>{sig.severity}</span>
-                    </div>
-                    <div className="jobs-signal-message">{sig.message}</div>
-                    <div className="jobs-signal-recommendation">{sig.recommendation}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="jobs-no-signals">
-            <ThumbsUp size={32} strokeWidth={1.5} />
-            <p>No optimization issues detected for this job</p>
-          </div>
-        )}
+      {/* Shuffle Metrics Section */}
+      <div className="jobs-metrics-section">
+        <h4>Shuffle Metrics</h4>
+        <table className="jobs-metrics-table">
+          <tbody>
+            <tr><td className="label">Shuffle Read</td><td className="value">{formatBytes(m.shuffleReadBytes)}</td></tr>
+            <tr><td className="label">Shuffle Write</td><td className="value">{formatBytes(m.shuffleWriteBytes)}</td></tr>
+            <tr><td className="label">  ↳ Remote Reads</td><td className="value">{formatBytes(m.shuffleRemoteBytesRead)}</td></tr>
+            <tr><td className="label">  ↳ Local Reads</td><td className="value">{formatBytes(m.shuffleLocalBytesRead)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Resource Utilization Section */}
+      <div className="jobs-metrics-section">
+        <h4>Resource Utilization</h4>
+        <table className="jobs-metrics-table">
+          <tbody>
+            <tr><td className="label">Total Tasks</td><td className="value">{formatNumber(m.totalTasks)}</td></tr>
+            <tr className={(m.failedTasks || 0) > 0 ? 'highlight' : ''}>
+              <td className="label">Failed Tasks</td>
+              <td className="value">{formatNumber(m.failedTasks)}</td>
+            </tr>
+            <tr><td className="label">Peak Memory</td><td className="value">{formatBytes(m.peakExecutionMemory)}</td></tr>
+            <tr><td className="label">CPU Time</td><td className="value">{formatDuration(nsToMs(m.executorCpuTimeNs))}</td></tr>
+            <tr><td className="label">GC Time</td><td className="value">{formatDuration(m.jvmGcTimeMs)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Spill Metrics Section */}
+      <div className="jobs-metrics-section">
+        <h4>Spill Metrics</h4>
+        <table className="jobs-metrics-table">
+          <tbody>
+            <tr className={(m.memoryBytesSpilled || 0) > 0 ? 'highlight' : ''}>
+              <td className="label">Memory Spilled</td>
+              <td className="value">{formatBytes(m.memoryBytesSpilled)}</td>
+            </tr>
+            <tr className={(m.diskBytesSpilled || 0) > 0 ? 'highlight' : ''}>
+              <td className="label">Disk Spilled</td>
+              <td className="value">{formatBytes(m.diskBytesSpilled)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   );

@@ -14,6 +14,7 @@ import Schema from './pages/Schema';
 import Anomalies from './pages/Anomalies';
 import Alerts from './pages/Alerts';
 import ApiKeys from './pages/ApiKeys';
+import Jobs from './pages/Jobs';
 import './App.css';
 
 function App() {
@@ -44,6 +45,7 @@ function App() {
                 <Route path="anomalies" element={<Anomalies />} />
                 <Route path="alerts" element={<Alerts />} />
                 <Route path="api-keys" element={<ApiKeys />} />
+                <Route path="jobs" element={<Jobs />} />
               </Route>
             </Routes>
           </BrowserRouter>

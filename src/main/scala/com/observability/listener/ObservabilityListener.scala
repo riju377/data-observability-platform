@@ -139,10 +139,11 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
   private var appMetrics: JobMetrics = JobMetrics()
   private val appInputs = mutable.Set[TableReference]()
   private val appOutputs = mutable.Set[TableReference]()
-  
+
   // Track the job name/id for the application (from the first job or config)
   private var appJobName: Option[String] = None
   private var appApplicationId: Option[String] = None
+  private var appStartTime: Option[Long] = None
 
 
   /**
@@ -153,6 +154,7 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     logger.info(s"Application started: ${applicationStart.appName} (ID: ${applicationStart.appId.getOrElse("unknown")})")
     appJobName = Some(applicationStart.appName)
     appApplicationId = applicationStart.appId
+    appStartTime = Some(System.currentTimeMillis())
     ensureQueryListenerRegistered()
   }
 
@@ -172,8 +174,8 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
       jobId = appApplicationId.getOrElse("unknown-app"),
       jobName = appJobName,
       applicationId = appApplicationId,
-      startTime = new Timestamp(applicationEnd.time), // We don't have start time handy here easily without tracking, assuming end-is-end
-      endTime = Some(new Timestamp(applicationEnd.time)), 
+      startTime = new Timestamp(appStartTime.getOrElse(applicationEnd.time)),
+      endTime = Some(new Timestamp(applicationEnd.time)),
       status = JobStatus.Success, // We assume success if we got here, or simple completion
       errorMessage = None,
       inputTables = appInputs.toSeq,

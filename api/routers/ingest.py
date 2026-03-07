@@ -97,8 +97,10 @@ class IngestPayload(BaseModel):
     job_id: str
     job_name: Optional[str] = None
     application_id: Optional[str] = None
-    timestamp: Optional[datetime] = None
-    
+    timestamp: Optional[datetime] = None  # Deprecated, use started_at/ended_at
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+
     # Lineage
     inputs: List[TableReference] = []
     outputs: List[TableReference] = []
@@ -386,52 +388,62 @@ def process_metadata(payload: IngestPayload, org_id: str):
                         DO UPDATE SET job_id = EXCLUDED.job_id, job_name = EXCLUDED.job_name, created_at = NOW()
                     """, (source_id, target_id, payload.job_id, payload.job_name, org_id))
             
-            # 2.5. Upsert Jobs and Insert Job Executions (Normalized)
+            # 2.5. Upsert Jobs (only if execution_metrics is present)
+            # This ensures lineage-only calls don't create job entries
             try:
-                # Ensure job_name is not None
-                final_job_name = payload.job_name or payload.job_id or "Unknown Job"
+                # Only create job entry if we have execution metrics (full metadata publish)
+                if payload.execution_metrics:
+                    # Ensure job_name is not None
+                    final_job_name = payload.job_name or payload.job_id or "Unknown Job"
 
-                # Prepare execution metrics
-                logger.debug(f"Processing job {final_job_name} ({payload.job_id}). Execution Metrics: {payload.execution_metrics}")
-                exec_metrics_json = json.dumps(payload.execution_metrics) if payload.execution_metrics else None
-                status = "SUCCESS" # We assume success if we got here for now
+                    # Prepare execution metrics
+                    logger.info(f"Creating/updating job entry: {final_job_name} ({payload.job_id})")
+                    exec_metrics_json = json.dumps(payload.execution_metrics)
+                    status = "SUCCESS" # We assume success if we got here
 
-                cursor.execute("""
-                    INSERT INTO jobs (
-                        organization_id, job_name, updated_at, 
-                        status, started_at, ended_at, last_execution_id, execution_metrics, metadata
-                    )
-                    VALUES (%s, %s, NOW(), %s, NOW(), NOW(), %s, %s, %s::jsonb)
-                    ON CONFLICT (organization_id, job_name) 
-                    DO UPDATE SET 
-                        updated_at = NOW(),
-                        status = COALESCE(EXCLUDED.status, jobs.status),
-                        started_at = COALESCE(EXCLUDED.started_at, jobs.started_at),
-                        ended_at = COALESCE(EXCLUDED.ended_at, jobs.ended_at),
-                        last_execution_id = COALESCE(EXCLUDED.last_execution_id, jobs.last_execution_id),
-                        execution_metrics = COALESCE(EXCLUDED.execution_metrics, jobs.execution_metrics),
-                        metadata = COALESCE(EXCLUDED.metadata, jobs.metadata)
-                    RETURNING id
-                """, (
-                    org_id, 
-                    final_job_name, 
-                    status if payload.execution_metrics else None, # Only set status if metrics provided
-                    payload.job_id,
-                    exec_metrics_json,
-                    json.dumps({"application_id": payload.application_id}) if payload.application_id else None
-                ))
-                job_row = cursor.fetchone()
-                
-                if not job_row:
-                    # Fallback: SELECT if RETURNING failed
-                    cursor.execute(
-                        "SELECT id FROM jobs WHERE organization_id = %s AND job_name = %s", 
-                        (org_id, final_job_name)
-                    )
+                    # Use new started_at/ended_at fields, fallback to timestamp for backwards compatibility
+                    started_at = payload.started_at or payload.timestamp or datetime.now()
+                    ended_at = payload.ended_at or payload.timestamp or datetime.now()
+
+                    cursor.execute("""
+                        INSERT INTO jobs (
+                            organization_id, job_name, updated_at,
+                            status, started_at, ended_at, last_execution_id, execution_metrics, metadata
+                        )
+                        VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s::jsonb)
+                        ON CONFLICT (organization_id, job_name)
+                        DO UPDATE SET
+                            updated_at = NOW(),
+                            status = EXCLUDED.status,
+                            started_at = EXCLUDED.started_at,
+                            ended_at = EXCLUDED.ended_at,
+                            last_execution_id = EXCLUDED.last_execution_id,
+                            execution_metrics = EXCLUDED.execution_metrics,
+                            metadata = EXCLUDED.metadata
+                        RETURNING id
+                    """, (
+                        org_id,
+                        final_job_name,
+                        status,
+                        started_at,
+                        ended_at,
+                        payload.job_id,
+                        exec_metrics_json,
+                        json.dumps({"application_id": payload.application_id}) if payload.application_id else None
+                    ))
                     job_row = cursor.fetchone()
-                
-                job_definition_id = job_row['id'] if job_row else None
-                job_definition_id = job_row['id'] if job_row else None
+
+                    if not job_row:
+                        # Fallback: SELECT if RETURNING failed
+                        cursor.execute(
+                            "SELECT id FROM jobs WHERE organization_id = %s AND job_name = %s",
+                            (org_id, final_job_name)
+                        )
+                        job_row = cursor.fetchone()
+
+                    logger.info(f"Job entry created/updated successfully: {final_job_name}")
+                else:
+                    logger.debug(f"Skipping job creation for {payload.job_id} - no execution metrics (lineage-only)")
             except Exception as e:
                 logger.error(f"Error upserting job {payload.job_id}: {str(e)}")
             

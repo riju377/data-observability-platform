@@ -35,6 +35,21 @@ from routers import ingest as ingest_router
 from routers import auth as auth_router
 
 # ============================================
+# Utility Functions
+# ============================================
+
+def snake_to_camel(snake_str: str) -> str:
+    """Convert snake_case to camelCase"""
+    components = snake_str.split('_')
+    return components[0] + ''.join(x.title() for x in components[1:])
+
+def convert_metrics_to_camel_case(metrics: dict) -> dict:
+    """Convert execution_metrics from snake_case to camelCase for frontend compatibility"""
+    if not metrics or not isinstance(metrics, dict):
+        return metrics
+    return {snake_to_camel(key): value for key, value in metrics.items()}
+
+# ============================================
 # FastAPI App Setup
 # ============================================
 
@@ -1539,7 +1554,13 @@ async def list_jobs(
             last_execution_id,
             execution_metrics,
             created_at,
-            updated_at
+            updated_at,
+            CASE
+                WHEN started_at IS NOT NULL AND ended_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000
+                ELSE NULL
+            END::integer AS duration_ms,
+            metadata->>'application_id' AS application_id
         FROM jobs
         WHERE organization_id = %s
     """
@@ -1568,6 +1589,10 @@ async def list_jobs(
 
     try:
         results = execute_query(query, tuple(params))
+        # Convert execution_metrics from snake_case to camelCase
+        for job in results:
+            if job.get('execution_metrics'):
+                job['execution_metrics'] = convert_metrics_to_camel_case(job['execution_metrics'])
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -1597,7 +1622,13 @@ async def get_job(job_uuid: str, org: OrgContext = Depends(get_current_org)):
             last_execution_id,
             execution_metrics,
             created_at,
-            updated_at
+            updated_at,
+            CASE
+                WHEN started_at IS NOT NULL AND ended_at IS NOT NULL
+                THEN EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000
+                ELSE NULL
+            END::integer AS duration_ms,
+            metadata->>'application_id' AS application_id
         FROM jobs
         WHERE id = %s AND organization_id = %s
     """
@@ -1609,6 +1640,9 @@ async def get_job(job_uuid: str, org: OrgContext = Depends(get_current_org)):
                 status_code=404,
                 detail=f"Job '{job_uuid}' not found"
             )
+        # Convert execution_metrics from snake_case to camelCase
+        if result.get('execution_metrics'):
+            result['execution_metrics'] = convert_metrics_to_camel_case(result['execution_metrics'])
         return result
     except HTTPException:
         raise
@@ -1661,7 +1695,7 @@ async def get_jobs_summary(
     """
     Get summary statistics of job executions
 
-    Returns counts by status, average duration, and top failing jobs.
+    Returns simple counts by status (total, success, failed).
 
     **Example:**
     ```
@@ -1671,11 +1705,8 @@ async def get_jobs_summary(
     query = """
         SELECT
             COUNT(*) as total_jobs,
-            SUM(CASE WHEN status = 'Success' THEN 1 ELSE 0 END) as success_count,
-            SUM(CASE WHEN status = 'Failed' THEN 1 ELSE 0 END) as failed_count,
-            SUM(CASE WHEN status = 'Running' THEN 1 ELSE 0 END) as running_count,
-            AVG(EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000) as avg_duration_ms,
-            MAX(EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000) as max_duration_ms
+            SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END) as success_count,
+            SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) as failed_count
         FROM jobs
         WHERE started_at > NOW() - (INTERVAL '1 hour' * %s)
           AND organization_id = %s
@@ -1684,18 +1715,11 @@ async def get_jobs_summary(
     try:
         result = execute_single(query, (hours, org.org_id))
 
-        total = result['total_jobs'] or 0
-        success = result['success_count'] or 0
-        
         return {
             "time_window_hours": hours,
-            "total_jobs": total,
-            "success_count": success,
-            "failed_count": result['failed_count'] or 0,
-            "running_count": result['running_count'] or 0,
-            "success_rate": round((success / total * 100), 2) if total > 0 else 0.0,
-            "avg_duration_ms": round(float(result['avg_duration_ms'] or 0), 2),
-            "max_duration_ms": round(float(result['max_duration_ms'] or 0), 2)
+            "total_jobs": result['total_jobs'] or 0,
+            "success_count": result['success_count'] or 0,
+            "failed_count": result['failed_count'] or 0
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

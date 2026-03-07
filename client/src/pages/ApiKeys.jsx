@@ -51,29 +51,58 @@ function ApiKeys() {
   // Fetch latest version from Maven Central
   const [latestVersion, setLatestVersion] = useState('1.5.0'); // Fallback default
 
-  const fetchLatestVersion = async () => {
-    try {
-      // Fetch maven-metadata.xml via public CORS proxy (codetabs.com)
-      // allorigins.win was unreliable/slow from some environments
-      const metadataUrl =
-        "https://repo1.maven.org/maven2/io/github/riju377/data-observability-platform_2.12/maven-metadata.xml";
-      const proxyUrl = "https://api.codetabs.com/v1/proxy/?quest=" + metadataUrl;
+const fetchLatestVersion = async () => {
+  try {
+    // Fetch maven-metadata.xml directly from the repository
+    const metadataUrl =
+      "https://repo1.maven.org/maven2/io/github/riju377/data-observability-platform_2.12/maven-metadata.xml";
 
-      const response = await fetch(proxyUrl);
-      if (response.ok) {
-        const text = await response.text();
-        const parser = new DOMParser();
-        const xml = parser.parseFromString(text, "application/xml");
-        const latest = xml.querySelector("latest")?.textContent;
+    const proxy =
+      `https://royal-bush-7f82.rijum8153.workers.dev?url=${encodeURIComponent(metadataUrl)}`;
 
-        if (latest) {
-          setLatestVersion(latest);
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to fetch latest version via proxy', e);
+    console.log('[Version Fetch] Fetching metadata from proxy...');
+
+    const res = await fetch(proxy);
+
+    if (!res.ok) {
+      console.error('[Version Fetch] Proxy returned error:', res.status, res.statusText);
+      const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('[Version Fetch] Error details:', errorData);
+      return;
     }
-  };
+
+    const text = await res.text();
+    console.log('[Version Fetch] Received XML, length:', text.length);
+
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(text, "application/xml");
+
+    // Check for parsing errors
+    const parseError = xml.querySelector("parsererror");
+    if (parseError) {
+      console.error('[Version Fetch] XML parse error:', parseError.textContent);
+      return;
+    }
+
+    // Try multiple possible paths for the latest version
+    const latest =
+      xml.querySelector("metadata > versioning > latest")?.textContent ||
+      xml.querySelector("versioning > latest")?.textContent ||
+      xml.querySelector("latest")?.textContent;
+
+    if (latest) {
+      setLatestVersion(latest);
+      console.log('[Version Fetch] ✓ Latest version:', latest);
+    } else {
+      console.warn('[Version Fetch] Could not find <latest> tag in XML');
+      console.log('[Version Fetch] XML structure:', xml.documentElement?.outerHTML?.substring(0, 500));
+    }
+
+  } catch (e) {
+    console.error('[Version Fetch] Error:', e.message);
+    console.error('[Version Fetch] Full error:', e);
+  }
+};
 
   // Real-time validation
   const validateKeyName = (name) => {
@@ -586,16 +615,6 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "$
                   <ChevronRight size={14} className="config-arrow" />
                   <code className="config-val">"My Job Name"</code>
                 </div>
-                <div className="config-row">
-                  <code className="config-key">spark.observability.api.connectTimeoutMs</code>
-                  <ChevronRight size={14} className="config-arrow" />
-                  <code className="config-val">5000</code>
-                </div>
-                <div className="config-row">
-                  <code className="config-key">spark.observability.api.readTimeoutMs</code>
-                  <ChevronRight size={14} className="config-arrow" />
-                  <code className="config-val">30000</code>
-                </div>
 
               </div>
             </div>
@@ -606,23 +625,57 @@ libraryDependencies += "io.github.riju377" %% "data-observability-platform" % "$
             <div className="step-number">3</div>
             <div className="step-content">
               <h3>Run &amp; Monitor</h3>
-              <p>Submit your Spark job as usual. The listener automatically captures:</p>
-              <div className="captures-grid">
-                <div className="capture-item">
-                  <span className="capture-icon">📊</span>
-                  <span>Dataset metrics &amp; row counts</span>
+              <p>Submit your Spark job as usual. The listener automatically captures comprehensive metrics:</p>
+
+              <div className="metrics-section">
+                <h4>📊 Dataset Metrics</h4>
+                <div className="metrics-grid-guide">
+                  <div className="metric-item-guide">• Row counts</div>
+                  <div className="metric-item-guide">• Data size (bytes)</div>
+                  <div className="metric-item-guide">• Partition counts</div>
+                  <div className="metric-item-guide">• File formats</div>
                 </div>
-                <div className="capture-item">
-                  <span className="capture-icon">🔗</span>
-                  <span>Table &amp; column lineage</span>
+              </div>
+
+              <div className="metrics-section">
+                <h4>📈 Column-Level Statistics</h4>
+                <div className="metrics-grid-guide">
+                  <div className="metric-item-guide">• Null counts</div>
+                  <div className="metric-item-guide">• Distinct value counts</div>
+                  <div className="metric-item-guide">• Min/Max values</div>
+                  <div className="metric-item-guide">• Data types</div>
                 </div>
-                <div className="capture-item">
-                  <span className="capture-icon">📋</span>
-                  <span>Schema evolution tracking</span>
+              </div>
+
+              <div className="metrics-section">
+                <h4>🔗 Lineage Tracking</h4>
+                <div className="metrics-grid-guide">
+                  <div className="metric-item-guide">• Table dependencies</div>
+                  <div className="metric-item-guide">• Column-level lineage</div>
+                  <div className="metric-item-guide">• Transformation graph</div>
+                  <div className="metric-item-guide">• Source → Target mapping</div>
                 </div>
-                <div className="capture-item">
-                  <span className="capture-icon">🚨</span>
-                  <span>Anomaly detection &amp; alerts</span>
+              </div>
+
+              <div className="metrics-section">
+                <h4>📋 Schema & Quality</h4>
+                <div className="metrics-grid-guide">
+                  <div className="metric-item-guide">• Schema versioning</div>
+                  <div className="metric-item-guide">• Column additions/removals</div>
+                  <div className="metric-item-guide">• Type changes detection</div>
+                  <div className="metric-item-guide">• Anomaly alerts (3σ threshold)</div>
+                </div>
+              </div>
+
+              <div className="metrics-section">
+                <h4>⚡ Job & Execution Metrics</h4>
+                <div className="metrics-grid-guide">
+                  <div className="metric-item-guide">• Job duration & timing</div>
+                  <div className="metric-item-guide">• Stage & task counts</div>
+                  <div className="metric-item-guide">• Executor metrics (CPU, memory)</div>
+                  <div className="metric-item-guide">• Shuffle read/write bytes</div>
+                  <div className="metric-item-guide">• Records processed per stage</div>
+                  <div className="metric-item-guide">• Task failures & retries</div>
                 </div>
               </div>
             </div>

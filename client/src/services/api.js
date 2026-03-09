@@ -62,7 +62,10 @@ export const deleteAlertRule = (id) => api.delete(`/alert-rules/${id}`);
 export const getAlertHistory = (hours = 24) => api.get(`/alert-history?hours=${hours}`);
 
 // Column Lineage
-export const getDatasetColumns = (datasetName) => api.get(`/datasets/${datasetName}/column-lineage`);
+// Lightweight endpoint - returns only column names for dropdown (5KB vs 100KB)
+export const getDatasetColumns = (datasetName) => api.get(`/datasets/${datasetName}/columns`);
+// Full edge details - use when you need transform_type, expression, etc.
+export const getDatasetColumnLineage = (datasetName) => api.get(`/datasets/${datasetName}/column-lineage`);
 export const getColumnUpstream = (datasetName, columnName, maxDepth = 10) =>
   api.get(`/datasets/${datasetName}/columns/${columnName}/upstream?max_depth=${maxDepth}`);
 export const getColumnDownstream = (datasetName, columnName, maxDepth = 10) =>

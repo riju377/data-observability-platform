@@ -503,14 +503,24 @@ async def get_column_lineage_graph(
         all_columns.extend([(r['dataset_name'], r['column_name']) for r in upstream])
         all_columns.extend([(r['dataset_name'], r['column_name']) for r in downstream])
 
-        # Get all edges between these columns
+        # Get all edges between these specific columns (not entire datasets)
         if all_columns:
-            # Build conditions for each dataset/column pair
-            dataset_names = list(set([c[0] for c in all_columns]))
+            # Build a list of (dataset_name, column_name) conditions
+            # We need edges where BOTH source and target are in our column set
+            column_pairs_json = json.dumps([{"dataset": c[0], "column": c[1]} for c in all_columns])
 
             edges_query = """
+                WITH relevant_columns AS (
+                    SELECT
+                        d.id as dataset_id,
+                        d.name as dataset_name,
+                        col.value->>'column' as column_name
+                    FROM datasets d
+                    CROSS JOIN jsonb_array_elements(%s::jsonb) col
+                    WHERE d.name = col.value->>'dataset'
+                      AND d.organization_id = %s
+                )
                 SELECT
-                    cle.id::text,
                     cle.source_dataset_id::text,
                     ds.name as source_dataset_name,
                     cle.source_column,
@@ -518,15 +528,25 @@ async def get_column_lineage_graph(
                     dt.name as target_dataset_name,
                     cle.target_column,
                     cle.transform_type,
-                    cle.expression,
-                    cle.job_id,
-                    cle.created_at
+                    cle.expression
                 FROM column_lineage_edges cle
                 JOIN datasets ds ON cle.source_dataset_id = ds.id
                 JOIN datasets dt ON cle.target_dataset_id = dt.id
-                WHERE ds.name = ANY(%s) OR dt.name = ANY(%s)
+                WHERE cle.organization_id = %s
+                  AND ds.organization_id = %s
+                  AND dt.organization_id = %s
+                  AND EXISTS (
+                      SELECT 1 FROM relevant_columns rc
+                      WHERE rc.dataset_id = cle.source_dataset_id
+                        AND rc.column_name = cle.source_column
+                  )
+                  AND EXISTS (
+                      SELECT 1 FROM relevant_columns rc
+                      WHERE rc.dataset_id = cle.target_dataset_id
+                        AND rc.column_name = cle.target_column
+                  )
             """
-            edges = execute_query(edges_query, (dataset_names, dataset_names))
+            edges = execute_query(edges_query, (column_pairs_json, org.org_id, org.org_id, org.org_id, org.org_id))
         else:
             edges = []
 
@@ -541,12 +561,53 @@ async def get_column_lineage_graph(
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
+@app.get("/datasets/{dataset_name}/columns", tags=["Column Lineage"])
+async def get_dataset_columns_list(dataset_name: str, org: OrgContext = Depends(get_current_org)):
+    """
+    Get list of columns that have lineage data for a dataset (lightweight)
+
+    Returns only unique column names, optimized for populating dropdowns.
+    Use /column-lineage for full edge details.
+
+    **Example:**
+    ```
+    GET /datasets/gold_daily_metrics/columns
+    Returns: ["user_id", "total_amount", "trip_count"]
+    ```
+    """
+    query = """
+        SELECT DISTINCT column_name
+        FROM (
+            SELECT cle.source_column as column_name
+            FROM column_lineage_edges cle
+            JOIN datasets ds ON cle.source_dataset_id = ds.id
+            WHERE ds.name = %s
+              AND cle.organization_id = %s
+              AND ds.organization_id = %s
+            UNION
+            SELECT cle.target_column as column_name
+            FROM column_lineage_edges cle
+            JOIN datasets dt ON cle.target_dataset_id = dt.id
+            WHERE dt.name = %s
+              AND cle.organization_id = %s
+              AND dt.organization_id = %s
+        ) columns
+        ORDER BY column_name
+    """
+    try:
+        results = execute_query(query, (dataset_name, org.org_id, org.org_id, dataset_name, org.org_id, org.org_id))
+        return [r['column_name'] for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
 @app.get("/datasets/{dataset_name}/column-lineage", tags=["Column Lineage"])
 async def get_dataset_column_lineage(dataset_name: str, org: OrgContext = Depends(get_current_org)):
     """
-    Get all column lineage edges for a dataset
+    Get all column lineage edges for a dataset (full details)
 
-    Returns all column-level dependencies for the specified dataset.
+    Returns all column-level dependencies with full edge metadata.
+    For dropdown population, use /datasets/{dataset_name}/columns instead.
 
     **Example:**
     ```
@@ -555,7 +616,6 @@ async def get_dataset_column_lineage(dataset_name: str, org: OrgContext = Depend
     """
     query = """
         SELECT
-            cle.id::text,
             cle.source_dataset_id::text,
             ds.name as source_dataset_name,
             cle.source_column,
@@ -563,18 +623,18 @@ async def get_dataset_column_lineage(dataset_name: str, org: OrgContext = Depend
             dt.name as target_dataset_name,
             cle.target_column,
             cle.transform_type,
-            cle.expression,
-            cle.job_id,
-            cle.created_at
+            cle.expression
         FROM column_lineage_edges cle
         JOIN datasets ds ON cle.source_dataset_id = ds.id
         JOIN datasets dt ON cle.target_dataset_id = dt.id
-        WHERE ds.name = %s OR dt.name = %s
-        ORDER BY cle.created_at DESC
+        WHERE (ds.name = %s OR dt.name = %s)
+          AND cle.organization_id = %s
+          AND ds.organization_id = %s
+          AND dt.organization_id = %s
     """
 
     try:
-        results = execute_query(query, (dataset_name, dataset_name))
+        results = execute_query(query, (dataset_name, dataset_name, org.org_id, org.org_id, org.org_id))
         return [ColumnLineageEdge(**r) for r in results]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -651,8 +711,8 @@ async def get_column_impact(
         dataset_names = list(datasets_map.keys())
         dataset_info = {}
         if dataset_names:
-            info_query = "SELECT name, dataset_type FROM datasets WHERE name = ANY(%s)"
-            info_results = execute_query(info_query, (dataset_names,))
+            info_query = "SELECT name, dataset_type FROM datasets WHERE name = ANY(%s) AND organization_id = %s"
+            info_results = execute_query(info_query, (dataset_names, org.org_id))
             for r in info_results:
                 dataset_info[r['name']] = r.get('dataset_type')
 
@@ -663,7 +723,6 @@ async def get_column_impact(
                 dataset_name=ds_name,
                 dataset_type=dataset_info.get(ds_name),
                 columns=data['columns'],
-                total_columns_affected=len(data['columns']),
                 max_depth=data['max_depth']
             ))
 
@@ -735,12 +794,13 @@ async def get_current_schema(dataset_name: str, org: OrgContext = Depends(get_cu
         FROM schema_versions sv
         JOIN datasets d ON sv.dataset_id = d.id
         WHERE d.name = %s
+          AND d.organization_id = %s
           AND sv.valid_to IS NULL
         LIMIT 1
     """
 
     try:
-        result = execute_single(query, (dataset_name,))
+        result = execute_single(query, (dataset_name, org.org_id))
         if not result:
             raise HTTPException(
                 status_code=404,
@@ -786,17 +846,18 @@ async def get_schema_history(
         FROM schema_versions sv
         JOIN datasets d ON sv.dataset_id = d.id
         WHERE d.name = %s
+          AND d.organization_id = %s
         ORDER BY sv.valid_from DESC
         LIMIT %s
     """
 
     try:
-        results = execute_query(query, (dataset_name, limit))
+        results = execute_query(query, (dataset_name, org.org_id, limit))
         if not results:
             # Check if dataset exists
             dataset_check = execute_single(
-                "SELECT id FROM datasets WHERE name = %s",
-                (dataset_name,)
+                "SELECT id FROM datasets WHERE name = %s AND organization_id = %s",
+                (dataset_name, org.org_id)
             )
             if not dataset_check:
                 raise HTTPException(
@@ -814,7 +875,8 @@ async def get_schema_history(
 async def get_schema_diff(
     dataset_name: str,
     from_version: str = Query(..., description="Schema version ID to compare from"),
-    to_version: str = Query(..., description="Schema version ID to compare to")
+    to_version: str = Query(..., description="Schema version ID to compare to"),
+    org: OrgContext = Depends(get_current_org)
 ):
     """
     Compare two schema versions and show differences
@@ -829,18 +891,21 @@ async def get_schema_diff(
     **Use Case:** "What changed between these two schema versions?"
     """
     try:
-        # Get both schema versions
+        # Get both schema versions (verify they belong to this org's dataset)
         query = """
             SELECT
                 sv.id::text,
                 sv.schema_json as schema_data,
                 sv.valid_from
             FROM schema_versions sv
+            JOIN datasets d ON sv.dataset_id = d.id
             WHERE sv.id::text = %s
+              AND d.name = %s
+              AND d.organization_id = %s
         """
 
-        from_schema = execute_single(query, (from_version,))
-        to_schema = execute_single(query, (to_version,))
+        from_schema = execute_single(query, (from_version, dataset_name, org.org_id))
+        to_schema = execute_single(query, (to_version, dataset_name, org.org_id))
 
         if not from_schema:
             raise HTTPException(status_code=404, detail=f"Schema version '{from_version}' not found")
@@ -957,9 +1022,10 @@ async def get_dataset_metrics(
         FROM dataset_metrics dm
         JOIN datasets d ON dm.dataset_id = d.id
         WHERE d.name = %s
+          AND d.organization_id = %s
     """
 
-    params = [dataset_name]
+    params = [dataset_name, org.org_id]
 
     if hours:
         query += f" AND dm.timestamp > NOW() - INTERVAL '{hours} hours'"
@@ -972,8 +1038,8 @@ async def get_dataset_metrics(
         if not results:
             # Check if dataset exists
             dataset_check = execute_single(
-                "SELECT id FROM datasets WHERE name = %s",
-                (dataset_name,)
+                "SELECT id FROM datasets WHERE name = %s AND organization_id = %s",
+                (dataset_name, org.org_id)
             )
             if not dataset_check:
                 raise HTTPException(
@@ -1035,12 +1101,13 @@ async def get_metrics_statistics(
         FROM dataset_metrics dm
         JOIN datasets d ON dm.dataset_id = d.id
         WHERE d.name = %s
+          AND d.organization_id = %s
           AND dm.timestamp > NOW() - (INTERVAL '1 day' * %s)
           AND dm.row_count IS NOT NULL
     """
 
     try:
-        result = execute_single(query, (dataset_name, days))
+        result = execute_single(query, (dataset_name, org.org_id, days))
         if not result or result['data_points'] == 0:
             raise HTTPException(
                 status_code=404,
@@ -1179,10 +1246,11 @@ async def get_anomaly(anomaly_id: str, org: OrgContext = Depends(get_current_org
         FROM anomalies a
         JOIN datasets d ON a.dataset_id = d.id
         WHERE a.id = %s::uuid
+          AND a.organization_id = %s
     """
 
     try:
-        result = execute_single(query, (anomaly_id,))
+        result = execute_single(query, (anomaly_id, org.org_id))
         if not result:
             raise HTTPException(
                 status_code=404,
@@ -1282,7 +1350,7 @@ alert_engine = AlertEngine()
 
 
 @app.post("/alert-rules", response_model=AlertRule, tags=["Alerts"])
-async def create_alert_rule(rule: AlertRuleCreate):
+async def create_alert_rule(rule: AlertRuleCreate, org: OrgContext = Depends(get_current_org)):
     """
     Create a new alert rule
 
@@ -1292,8 +1360,8 @@ async def create_alert_rule(rule: AlertRuleCreate):
         query = """
             INSERT INTO alert_rules
             (name, description, dataset_name, anomaly_type, severity,
-             channel_type, channel_config, enabled, deduplication_minutes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+             channel_type, channel_config, enabled, deduplication_minutes, organization_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id::text, name, description, dataset_name, anomaly_type, severity,
                       channel_type, channel_config, enabled, deduplication_minutes,
                       created_at, updated_at
@@ -1307,7 +1375,8 @@ async def create_alert_rule(rule: AlertRuleCreate):
             rule.channel_type.value if hasattr(rule.channel_type, 'value') else rule.channel_type,
             json.dumps(rule.channel_config),
             rule.enabled,
-            rule.deduplication_minutes
+            rule.deduplication_minutes,
+            org.org_id
         ), commit=True)
         return result
     except Exception as e:
@@ -1330,17 +1399,21 @@ async def list_alert_rules(
                 SELECT id::text, name, description, dataset_name, anomaly_type, severity,
                        channel_type, channel_config, enabled, deduplication_minutes,
                        created_at, updated_at
-                FROM alert_rules WHERE enabled = %s ORDER BY created_at DESC
+                FROM alert_rules
+                WHERE enabled = %s AND organization_id = %s
+                ORDER BY created_at DESC
             """
-            results = execute_query(query, (enabled,))
+            results = execute_query(query, (enabled, org.org_id))
         else:
             query = """
                 SELECT id::text, name, description, dataset_name, anomaly_type, severity,
                        channel_type, channel_config, enabled, deduplication_minutes,
                        created_at, updated_at
-                FROM alert_rules ORDER BY created_at DESC
+                FROM alert_rules
+                WHERE organization_id = %s
+                ORDER BY created_at DESC
             """
-            results = execute_query(query)
+            results = execute_query(query, (org.org_id,))
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -1354,9 +1427,10 @@ async def get_alert_rule(rule_id: str, org: OrgContext = Depends(get_current_org
             SELECT id::text, name, description, dataset_name, anomaly_type, severity,
                    channel_type, channel_config, enabled, deduplication_minutes,
                    created_at, updated_at
-            FROM alert_rules WHERE id = %s
+            FROM alert_rules
+            WHERE id = %s AND organization_id = %s
         """
-        result = execute_single(query, (rule_id,))
+        result = execute_single(query, (rule_id, org.org_id))
         if not result:
             raise HTTPException(status_code=404, detail=f"Alert rule '{rule_id}' not found")
         return result
@@ -1367,7 +1441,7 @@ async def get_alert_rule(rule_id: str, org: OrgContext = Depends(get_current_org
 
 
 @app.put("/alert-rules/{rule_id}", response_model=AlertRule, tags=["Alerts"])
-async def update_alert_rule(rule_id: str, rule: AlertRuleCreate):
+async def update_alert_rule(rule_id: str, rule: AlertRuleCreate, org: OrgContext = Depends(get_current_org)):
     """Update an existing alert rule"""
     try:
         query = """
@@ -1375,7 +1449,7 @@ async def update_alert_rule(rule_id: str, rule: AlertRuleCreate):
             SET name = %s, description = %s, dataset_name = %s, anomaly_type = %s,
                 severity = %s, channel_type = %s, channel_config = %s,
                 enabled = %s, deduplication_minutes = %s, updated_at = NOW()
-            WHERE id = %s
+            WHERE id = %s AND organization_id = %s
             RETURNING id::text, name, description, dataset_name, anomaly_type, severity,
                       channel_type, channel_config, enabled, deduplication_minutes,
                       created_at, updated_at
@@ -1390,7 +1464,8 @@ async def update_alert_rule(rule_id: str, rule: AlertRuleCreate):
             json.dumps(rule.channel_config),
             rule.enabled,
             rule.deduplication_minutes,
-            rule_id
+            rule_id,
+            org.org_id
         ), commit=True)
         if not result:
             raise HTTPException(status_code=404, detail=f"Alert rule '{rule_id}' not found")
@@ -1402,11 +1477,11 @@ async def update_alert_rule(rule_id: str, rule: AlertRuleCreate):
 
 
 @app.delete("/alert-rules/{rule_id}", tags=["Alerts"])
-async def delete_alert_rule(rule_id: str):
+async def delete_alert_rule(rule_id: str, org: OrgContext = Depends(get_current_org)):
     """Delete an alert rule"""
     try:
-        query = "DELETE FROM alert_rules WHERE id = %s RETURNING id::text"
-        result = execute_single(query, (rule_id,), commit=True)
+        query = "DELETE FROM alert_rules WHERE id = %s AND organization_id = %s RETURNING id::text"
+        result = execute_single(query, (rule_id, org.org_id), commit=True)
         if not result:
             raise HTTPException(status_code=404, detail=f"Alert rule '{rule_id}' not found")
         return {"message": "Alert rule deleted successfully", "id": result['id']}
@@ -1424,7 +1499,8 @@ async def delete_alert_rule(rule_id: str):
 async def list_alert_history(
     hours: int = Query(24, ge=1, le=720, description="Time window in hours"),
     status: Optional[str] = Query(None, description="Filter by status (SENT, FAILED, DEDUPLICATED)"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of results")
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
+    org: OrgContext = Depends(get_current_org)
 ):
     """
     List alert history
@@ -1434,27 +1510,31 @@ async def list_alert_history(
     try:
         if status:
             query = """
-                SELECT id::text, alert_rule_id::text, anomaly_id::text,
-                       channel_type, channel_context, response_payload, status, sent_at,
-                       error_message
-                FROM alert_history
-                WHERE sent_at > NOW() - (INTERVAL '1 hour' * %s)
-                AND status = %s
-                ORDER BY sent_at DESC
+                SELECT ah.id::text, ah.alert_rule_id::text, ah.anomaly_id::text,
+                       ah.channel_type, ah.channel_context, ah.response_payload, ah.status, ah.sent_at,
+                       ah.error_message
+                FROM alert_history ah
+                JOIN alert_rules ar ON ah.alert_rule_id = ar.id
+                WHERE ah.sent_at > NOW() - (INTERVAL '1 hour' * %s)
+                  AND ah.status = %s
+                  AND ar.organization_id = %s
+                ORDER BY ah.sent_at DESC
                 LIMIT %s
             """
-            results = execute_query(query, (hours, status, limit))
+            results = execute_query(query, (hours, status, org.org_id, limit))
         else:
             query = """
-                SELECT id::text, alert_rule_id::text, anomaly_id::text,
-                       channel_type, channel_context, response_payload, status, sent_at,
-                       error_message
-                FROM alert_history
-                WHERE sent_at > NOW() - (INTERVAL '1 hour' * %s)
-                ORDER BY sent_at DESC
+                SELECT ah.id::text, ah.alert_rule_id::text, ah.anomaly_id::text,
+                       ah.channel_type, ah.channel_context, ah.response_payload, ah.status, ah.sent_at,
+                       ah.error_message
+                FROM alert_history ah
+                JOIN alert_rules ar ON ah.alert_rule_id = ar.id
+                WHERE ah.sent_at > NOW() - (INTERVAL '1 hour' * %s)
+                  AND ar.organization_id = %s
+                ORDER BY ah.sent_at DESC
                 LIMIT %s
             """
-            results = execute_query(query, (hours, limit))
+            results = execute_query(query, (hours, org.org_id, limit))
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -1465,7 +1545,10 @@ async def list_alert_history(
 # ============================================
 
 @app.post("/test-alert", tags=["Alerts"])
-async def test_alert(anomaly_id: Optional[str] = Query(None, description="Anomaly ID to test with (uses mock if not provided)")):
+async def test_alert(
+    anomaly_id: Optional[str] = Query(None, description="Anomaly ID to test with (uses mock if not provided)"),
+    org: OrgContext = Depends(get_current_org)
+):
     """
     Test alert system by sending a test email
 
@@ -1478,14 +1561,14 @@ async def test_alert(anomaly_id: Optional[str] = Query(None, description="Anomal
     """
     try:
         if anomaly_id:
-            # Get real anomaly
+            # Get real anomaly (verify it belongs to this organization)
             query = """
                 SELECT a.*, d.name as dataset_name
                 FROM anomalies a
                 JOIN datasets d ON a.dataset_id = d.id
-                WHERE a.id = %s
+                WHERE a.id = %s AND a.organization_id = %s
             """
-            anomaly = execute_single(query, (anomaly_id,))
+            anomaly = execute_single(query, (anomaly_id, org.org_id))
             if not anomaly:
                 raise HTTPException(status_code=404, detail=f"Anomaly '{anomaly_id}' not found")
         else:

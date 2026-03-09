@@ -716,3 +716,21 @@
     margin-left: 0;
   }
 }
+
+/* Executor Memory Metrics Styles */
+.label-hint {
+  font-size: 0.85em;
+  opacity: 0.7;
+  font-weight: normal;
+  font-style: italic;
+}
+
+.text-critical {
+  color: var(--color-critical, #ef4444);
+  font-weight: 600;
+}
+
+.text-warning {
+  color: var(--color-warning, #f59e0b);
+  font-weight: 600;
+}

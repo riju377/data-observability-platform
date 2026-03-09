@@ -76,6 +76,21 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
   // This allows us to attribute correct row counts to each output in multi-output jobs
   private val tableMetrics = mutable.Map[String, (Long, Long)]()  // tableName -> (rowCount, byteSize)
 
+  // NEW: Executor-level memory tracking (for actionable Spark tuning metrics)
+  // Track peak heap memory per executor per job
+  private val executorMemory = mutable.Map[Int, mutable.Map[String, Long]]()  // jobId -> (executorId -> peakMemoryBytes)
+
+  // Track executor configuration (memory, cores)
+  private val executorConfig = mutable.Map[String, (Long, Int)]()  // executorId -> (memoryMb, cores)
+
+  // Track executor configuration for the application (read once from SparkConf)
+  private var appExecutorMemoryMb: Option[Long] = None
+  private var appExecutorCores: Option[Int] = None
+
+  // NEW: Task locality tracking (for resource contention detection)
+  // Track locality distribution per job
+  private val taskLocality = mutable.Map[Int, mutable.Map[String, Int]]()  // jobId -> (locality -> count)
+
   // Track if we've already registered as QueryExecutionListener (do it only once)
   @volatile private var queryListenerRegistered = false
 
@@ -155,7 +170,67 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     appJobName = Some(applicationStart.appName)
     appApplicationId = applicationStart.appId
     appStartTime = Some(System.currentTimeMillis())
+
+    // Capture executor configuration from SparkConf (for utilization metrics)
+    sparkConf.foreach { conf =>
+      try {
+        // Get executor memory (default: 1g)
+        val memoryStr = conf.get("spark.executor.memory", "1g")
+        appExecutorMemoryMb = Some(parseMemoryString(memoryStr))
+
+        // Get executor cores (default: 1)
+        appExecutorCores = Some(conf.getInt("spark.executor.cores", 1))
+
+        logger.info(s"Executor config: ${appExecutorMemoryMb.get}MB memory, ${appExecutorCores.get} cores")
+      } catch {
+        case e: Exception =>
+          logger.warn(s"Failed to capture executor config: ${e.getMessage}")
+      }
+    }
+
     ensureQueryListenerRegistered()
+  }
+
+  /**
+   * Parse Spark memory string (e.g., "4g", "512m", "2048") to MB
+   */
+  private def parseMemoryString(memStr: String): Long = {
+    val normalized = memStr.toLowerCase.trim
+    if (normalized.endsWith("g")) {
+      normalized.dropRight(1).toLong * 1024
+    } else if (normalized.endsWith("m")) {
+      normalized.dropRight(1).toLong
+    } else if (normalized.endsWith("k")) {
+      normalized.dropRight(1).toLong / 1024
+    } else {
+      // Assume bytes, convert to MB
+      normalized.toLong / (1024 * 1024)
+    }
+  }
+
+  /**
+   * Called when an executor is added
+   * Track executor configuration for per-executor memory metrics
+   */
+  override def onExecutorAdded(executorAdded: SparkListenerExecutorAdded): Unit = {
+    val executorId = executorAdded.executorId
+
+    // Use app-level config (assumes homogeneous cluster)
+    val memoryMb = appExecutorMemoryMb.getOrElse(1024L)
+    val cores = appExecutorCores.getOrElse(1)
+
+    executorConfig.put(executorId, (memoryMb, cores))
+    logger.info(s"Executor added: $executorId with ${memoryMb}MB memory and $cores cores")
+  }
+
+  /**
+   * Called when an executor is removed
+   * Clean up executor tracking
+   */
+  override def onExecutorRemoved(executorRemoved: SparkListenerExecutorRemoved): Unit = {
+    val executorId = executorRemoved.executorId
+    executorConfig.remove(executorId)
+    logger.info(s"Executor removed: $executorId")
   }
 
   /**
@@ -180,7 +255,9 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
       errorMessage = None,
       inputTables = appInputs.toSeq,
       outputTables = appOutputs.toSeq,
-      metrics = finalMetrics
+      metrics = finalMetrics,
+      executorMemoryMb = appExecutorMemoryMb,
+      executorCores = appExecutorCores
     )
     
     try {
@@ -235,7 +312,9 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
       status = JobStatus.Running,
       inputTables = Seq.empty,
       outputTables = Seq.empty,
-      metrics = JobMetrics()
+      metrics = JobMetrics(),
+      executorMemoryMb = appExecutorMemoryMb,
+      executorCores = appExecutorCores
     )
 
     // Store in our tracking map
@@ -260,6 +339,64 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
   }
 
   /**
+   * Calculate executor-level memory statistics for a job
+   * Returns: (maxMemoryPerExecutor, maxMemoryPerCore, avgMemoryPerExecutor, executorCount)
+   */
+  private def calculateExecutorStats(jobId: Int): (Option[Long], Option[Long], Option[Long], Option[Int]) = {
+    executorMemory.get(jobId) match {
+      case Some(jobExecMap) if jobExecMap.nonEmpty =>
+        // Get all executor peak memories
+        val executorPeaks = jobExecMap.values.toSeq
+
+        val maxMemory = executorPeaks.max
+        val avgMemory = executorPeaks.sum / executorPeaks.size
+        val executorCount = executorPeaks.size
+
+        // Calculate max memory per core
+        // Use configured cores from first executor (assumes homogeneous cluster)
+        val maxMemoryPerCore = executorConfig.values.headOption.map(_._2).filter(_ > 0).map { cores =>
+          maxMemory / cores
+        }
+
+        logger.info(s"Job $jobId executor stats: max=${maxMemory / (1024 * 1024)}MB, " +
+          s"avg=${avgMemory / (1024 * 1024)}MB, executors=$executorCount, " +
+          s"maxPerCore=${maxMemoryPerCore.map(_ / (1024 * 1024)).getOrElse(0L)}MB")
+
+        (Some(maxMemory), maxMemoryPerCore, Some(avgMemory), Some(executorCount))
+
+      case _ =>
+        logger.debug(s"No executor memory data for job $jobId")
+        (None, None, None, None)
+    }
+  }
+
+  /**
+   * Calculate task locality distribution for a job
+   * Returns: (processLocal, nodeLocal, rackLocal, anyLocality)
+   */
+  private def calculateTaskLocality(jobId: Int): (Option[Int], Option[Int], Option[Int], Option[Int]) = {
+    taskLocality.get(jobId) match {
+      case Some(localityMap) if localityMap.nonEmpty =>
+        val processLocal = localityMap.getOrElse("PROCESS_LOCAL", 0)
+        val nodeLocal = localityMap.getOrElse("NODE_LOCAL", 0)
+        val rackLocal = localityMap.getOrElse("RACK_LOCAL", 0)
+        val anyLocality = localityMap.getOrElse("ANY", 0)
+
+        val total = processLocal + nodeLocal + rackLocal + anyLocality
+        val anyPercent = if (total > 0) (anyLocality.toDouble / total * 100).toInt else 0
+
+        logger.info(s"Job $jobId locality: PROCESS=$processLocal, NODE=$nodeLocal, " +
+          s"RACK=$rackLocal, ANY=$anyLocality ($anyPercent% ANY - ${if (anyPercent > 30) "CRITICAL" else if (anyPercent > 10) "WARNING" else "OK"})")
+
+        (Some(processLocal), Some(nodeLocal), Some(rackLocal), Some(anyLocality))
+
+      case _ =>
+        logger.debug(s"No task locality data for job $jobId")
+        (None, None, None, None)
+    }
+  }
+
+  /**
    * Called when a Spark job completes (success or failure)
    *
    * This is where we finalize metadata and publish it.
@@ -269,12 +406,32 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     activeJobs.get(jobEnd.jobId) match {
       case Some(metadata) =>
         // Get accumulated metrics for this job
-        val finalMetrics = jobMetrics.getOrElse(jobEnd.jobId, JobMetrics())
+        val baseMetrics = jobMetrics.getOrElse(jobEnd.jobId, JobMetrics())
+
+        // Calculate executor-level memory statistics
+        val (maxMemPerExec, maxMemPerCore, avgMemPerExec, execCount) = calculateExecutorStats(jobEnd.jobId)
+
+        // Calculate task locality statistics
+        val (processLocal, nodeLocal, rackLocal, anyLocality) = calculateTaskLocality(jobEnd.jobId)
+
+        // Add executor stats and locality to metrics
+        val finalMetrics = baseMetrics.copy(
+          maxMemoryPerExecutorBytes = maxMemPerExec,
+          maxMemoryPerCoreBytes = maxMemPerCore,
+          avgMemoryPerExecutorBytes = avgMemPerExec,
+          executorCount = execCount,
+
+          // Task locality
+          processLocalTasks = processLocal,
+          nodeLocalTasks = nodeLocal,
+          rackLocalTasks = rackLocal,
+          anyLocalityTasks = anyLocality
+        )
 
         // Get accumulated lineage for this job
         val (inputs, outputs) = jobLineage.getOrElse(jobEnd.jobId, (Seq.empty, Seq.empty))
-        
-        
+
+
         // Aggregate into Application-Level Metrics and Lineage
         synchronized {
           appMetrics = combinedMetrics(appMetrics, finalMetrics)
@@ -289,6 +446,8 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
         activeJobs.remove(jobEnd.jobId)
         jobMetrics.remove(jobEnd.jobId)
         jobLineage.remove(jobEnd.jobId)
+        executorMemory.remove(jobEnd.jobId)  // Clean up executor memory tracking
+        taskLocality.remove(jobEnd.jobId)    // Clean up task locality tracking
 
         // Clean up stage mappings
         stageToJob.filter(_._2 == jobEnd.jobId).keys.foreach(stageToJob.remove)
@@ -370,9 +529,13 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
       diskBytesSpilled = sumOpt(m1.diskBytesSpilled, m2.diskBytesSpilled),
       peakExecutionMemory = maxOpt(m1.peakExecutionMemory, m2.peakExecutionMemory),
 
+      // Executor-level memory (take max across jobs - represents highest peak seen)
+      maxMemoryPerExecutorBytes = maxOpt(m1.maxMemoryPerExecutorBytes, m2.maxMemoryPerExecutorBytes),
+      maxMemoryPerCoreBytes = maxOpt(m1.maxMemoryPerCoreBytes, m2.maxMemoryPerCoreBytes),
+      avgMemoryPerExecutorBytes = maxOpt(m1.avgMemoryPerExecutorBytes, m2.avgMemoryPerExecutorBytes),
+      executorCount = maxOptInt(m1.executorCount, m2.executorCount),
+
       // Detailed shuffle read
-      shuffleRemoteBytesRead = sumOpt(m1.shuffleRemoteBytesRead, m2.shuffleRemoteBytesRead),
-      shuffleLocalBytesRead = sumOpt(m1.shuffleLocalBytesRead, m2.shuffleLocalBytesRead),
       shuffleRemoteBytesReadToDisk = sumOpt(m1.shuffleRemoteBytesReadToDisk, m2.shuffleRemoteBytesReadToDisk),
       shuffleFetchWaitTimeMs = sumOpt(m1.shuffleFetchWaitTimeMs, m2.shuffleFetchWaitTimeMs),
       shuffleRecordsRead = sumOpt(m1.shuffleRecordsRead, m2.shuffleRecordsRead),
@@ -381,9 +544,23 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
 
       // Detailed shuffle write
       shuffleWriteTimeNs = sumOpt(m1.shuffleWriteTimeNs, m2.shuffleWriteTimeNs),
-      shuffleRecordsWritten = sumOpt(m1.shuffleRecordsWritten, m2.shuffleRecordsWritten)
+      shuffleRecordsWritten = sumOpt(m1.shuffleRecordsWritten, m2.shuffleRecordsWritten),
+
+      // Task locality (sum across jobs)
+      processLocalTasks = sumOptInt(m1.processLocalTasks, m2.processLocalTasks),
+      nodeLocalTasks = sumOptInt(m1.nodeLocalTasks, m2.nodeLocalTasks),
+      rackLocalTasks = sumOptInt(m1.rackLocalTasks, m2.rackLocalTasks),
+      anyLocalityTasks = sumOptInt(m1.anyLocalityTasks, m2.anyLocalityTasks)
     )
   }
+
+  private def maxOptInt(a: Option[Int], b: Option[Int]): Option[Int] =
+    (a, b) match {
+      case (Some(x), Some(y)) => Some(math.max(x, y))
+      case (Some(x), None) => Some(x)
+      case (None, Some(y)) => Some(y)
+      case _ => None
+    }
 
 
   /**
@@ -414,8 +591,6 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
         memoryBytesSpilled = Some(metrics.memoryBytesSpilled),
         diskBytesSpilled = Some(metrics.diskBytesSpilled),
         peakExecutionMemory = Some(metrics.peakExecutionMemory),
-        shuffleRemoteBytesRead = Some(metrics.shuffleReadMetrics.remoteBytesRead),
-        shuffleLocalBytesRead = Some(metrics.shuffleReadMetrics.localBytesRead),
         shuffleRemoteBytesReadToDisk = Some(metrics.shuffleReadMetrics.remoteBytesReadToDisk),
         shuffleFetchWaitTimeMs = Some(metrics.shuffleReadMetrics.fetchWaitTime),
         shuffleRecordsRead = Some(metrics.shuffleReadMetrics.recordsRead),
@@ -433,6 +608,43 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
           logger.info(s"  Stage ${stageInfo.stageId} completed. Mode: TaskMetrics. Jobs: $jobId. RowsRead: ${metrics.inputMetrics.recordsRead}")
         case None =>
           logger.warn(s"Stage ${stageInfo.stageId} not associated with any job!")
+      }
+    }
+  }
+
+  /**
+   * Called when a task ends
+   * Track per-executor memory usage and task locality for actionable Spark tuning metrics
+   */
+  override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit = {
+    val taskInfo = taskEnd.taskInfo
+    val taskMetrics = taskEnd.taskMetrics
+
+    if (taskMetrics != null && taskInfo != null && !taskInfo.failed) {
+      val executorId = taskInfo.executorId
+      val taskMemory = taskMetrics.peakExecutionMemory
+
+      // Track executor memory
+      if (executorId != null && executorId != "driver" && taskMemory > 0) {
+        stageToJob.get(taskEnd.stageId).foreach { jobId =>
+          // Get or create executor memory map for this job
+          val jobExecMap = executorMemory.getOrElseUpdate(jobId, mutable.Map[String, Long]())
+
+          // Update peak memory for this executor
+          val currentPeak = jobExecMap.getOrElse(executorId, 0L)
+          if (taskMemory > currentPeak) {
+            jobExecMap.put(executorId, taskMemory)
+            logger.debug(s"Job $jobId: Executor $executorId peak memory updated to ${taskMemory / (1024 * 1024)}MB")
+          }
+        }
+      }
+
+      // Track task locality (for resource contention detection)
+      val locality = taskInfo.taskLocality.toString  // "PROCESS_LOCAL", "NODE_LOCAL", "RACK_LOCAL", "ANY"
+      stageToJob.get(taskEnd.stageId).foreach { jobId =>
+        val localityMap = taskLocality.getOrElseUpdate(jobId, mutable.Map[String, Int]())
+        localityMap.put(locality, localityMap.getOrElse(locality, 0) + 1)
+        logger.debug(s"Job $jobId: Task locality=$locality (total now: ${localityMap(locality)})")
       }
     }
   }

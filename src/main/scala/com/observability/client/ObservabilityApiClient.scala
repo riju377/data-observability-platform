@@ -159,15 +159,21 @@ class ObservabilityApiClient(
       |    "memory_bytes_spilled": ${execMetrics.memoryBytesSpilled.getOrElse(0)},
       |    "disk_bytes_spilled": ${execMetrics.diskBytesSpilled.getOrElse(0)},
       |    "peak_execution_memory": ${execMetrics.peakExecutionMemory.getOrElse(0)},
-      |    "shuffle_remote_bytes_read": ${execMetrics.shuffleRemoteBytesRead.getOrElse(0)},
-      |    "shuffle_local_bytes_read": ${execMetrics.shuffleLocalBytesRead.getOrElse(0)},
       |    "shuffle_remote_bytes_read_to_disk": ${execMetrics.shuffleRemoteBytesReadToDisk.getOrElse(0)},
       |    "shuffle_fetch_wait_time_ms": ${execMetrics.shuffleFetchWaitTimeMs.getOrElse(0)},
       |    "shuffle_records_read": ${execMetrics.shuffleRecordsRead.getOrElse(0)},
       |    "shuffle_remote_blocks_fetched": ${execMetrics.shuffleRemoteBlocksFetched.getOrElse(0)},
       |    "shuffle_local_blocks_fetched": ${execMetrics.shuffleLocalBlocksFetched.getOrElse(0)},
       |    "shuffle_write_time_ns": ${execMetrics.shuffleWriteTimeNs.getOrElse(0)},
-      |    "shuffle_records_written": ${execMetrics.shuffleRecordsWritten.getOrElse(0)}
+      |    "shuffle_records_written": ${execMetrics.shuffleRecordsWritten.getOrElse(0)},
+      |    "max_memory_per_executor_bytes": ${execMetrics.maxMemoryPerExecutorBytes.getOrElse(0)},
+      |    "max_memory_per_core_bytes": ${execMetrics.maxMemoryPerCoreBytes.getOrElse(0)},
+      |    "avg_memory_per_executor_bytes": ${execMetrics.avgMemoryPerExecutorBytes.getOrElse(0)},
+      |    "executor_count": ${execMetrics.executorCount.getOrElse(0)},
+      |    "process_local_tasks": ${execMetrics.processLocalTasks.getOrElse(0)},
+      |    "node_local_tasks": ${execMetrics.nodeLocalTasks.getOrElse(0)},
+      |    "rack_local_tasks": ${execMetrics.rackLocalTasks.getOrElse(0)},
+      |    "any_locality_tasks": ${execMetrics.anyLocalityTasks.getOrElse(0)}
       |  }""".stripMargin
     
     // Format timestamps as ISO 8601 (e.g., "2024-01-15T10:30:00Z")

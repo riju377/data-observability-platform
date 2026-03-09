@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     organization_id UUID REFERENCES organizations(id),
     job_name VARCHAR(500) NOT NULL,
     description TEXT,
-    
+
     -- Execution State (Denormalized from migration 007)
     status VARCHAR(50),
     metadata JSONB,
@@ -200,6 +200,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     ended_at TIMESTAMP,
     last_execution_id VARCHAR(200), -- Spark's job_id/app_id
     execution_metrics JSONB,
+
+    -- Executor Configuration (for utilization metrics)
+    executor_memory_mb BIGINT,
+    executor_cores INTEGER,
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

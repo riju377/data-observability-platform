@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, MarkerType, getBezierPath, EdgeLabelRenderer } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { getDatasets, getDatasetColumns, getColumnLineageGraph, getColumnImpact } from '../services/api';
-import { Network, ChevronDown, Loader2, Database, Code, AlertTriangle, Zap, Target, Copy, Check, Info } from 'lucide-react';
+import { getCachedDatasets, getCachedDatasetColumns, getCachedColumnLineage, getCachedColumnImpact, invalidateDatasetCache } from '../services/cachedApi';
+import { apiCache } from '../utils/cache';
+import { Network, ChevronDown, Loader2, Database, Code, AlertTriangle, Zap, Target, Copy, Check, Info, RefreshCw } from 'lucide-react';
 import { getLayoutedElements } from '../utils/layoutGraph';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
@@ -183,14 +184,23 @@ function ColumnLineage() {
   const [impactLoading, setImpactLoading] = useState(false);
   const [copiedPath, setCopiedPath] = useState(null);
 
+  // Clear old cached data format (one-time migration)
+  useEffect(() => {
+    const CACHE_VERSION = 'v2_columns_array';
+    const lastVersion = localStorage.getItem('columnLineageCacheVersion');
+    if (lastVersion !== CACHE_VERSION) {
+      apiCache.invalidate('datasetColumns');
+      localStorage.setItem('columnLineageCacheVersion', CACHE_VERSION);
+    }
+  }, []);
+
   useEffect(() => {
     loadDatasets();
   }, []);
 
   const loadDatasets = async () => {
     try {
-      const res = await getDatasets();
-      const datasetList = res.data || [];
+      const datasetList = await getCachedDatasets();
       setDatasets(datasetList);
       if (datasetList.length > 0) {
         const firstDataset = datasetList[0].name;
@@ -206,19 +216,9 @@ function ColumnLineage() {
 
   const loadColumns = async (datasetName) => {
     try {
-      const res = await getDatasetColumns(datasetName);
-      const edges = res.data || [];
-
-      const targetColumns = edges
-        .filter(e => e.target_dataset_name === datasetName)
-        .map(e => e.target_column);
-
-      const sourceColumns = edges
-        .filter(e => e.source_dataset_name === datasetName)
-        .map(e => e.source_column);
-
-      const uniqueColumns = [...new Set([...targetColumns, ...sourceColumns])];
-      const columnList = uniqueColumns.map(col => ({ column_name: col }));
+      // New lightweight endpoint returns just column names (array of strings)
+      const columnNames = await getCachedDatasetColumns(datasetName);
+      const columnList = columnNames.map(col => ({ column_name: col }));
 
       setColumns(columnList);
       if (columnList.length > 0) {
@@ -241,8 +241,8 @@ function ColumnLineage() {
     if (!datasetName || !columnName) return;
     setLoading(true);
     try {
-      const res = await getColumnLineageGraph(datasetName, columnName);
-      setLineageData(res.data);
+      const lineageData = await getCachedColumnLineage(datasetName, columnName);
+      setLineageData(lineageData);
     } catch (error) {
       console.error('Failed to load column lineage:', error);
       setLineageData(null);
@@ -254,8 +254,8 @@ function ColumnLineage() {
     if (!datasetName || !columnName) return;
     setImpactLoading(true);
     try {
-      const res = await getColumnImpact(datasetName, columnName);
-      setImpactData(res.data);
+      const impactData = await getCachedColumnImpact(datasetName, columnName);
+      setImpactData(impactData);
     } catch (error) {
       console.error('Failed to load impact analysis:', error);
       setImpactData(null);
@@ -268,6 +268,23 @@ function ColumnLineage() {
       loadImpact(selectedDataset, selectedColumn);
     }
     setShowImpact(!showImpact);
+  };
+
+  const handleRefresh = () => {
+    // Invalidate all caches
+    invalidateDatasetCache();
+
+    // Reload current data
+    if (selectedDataset && selectedColumn) {
+      loadLineage(selectedDataset, selectedColumn);
+      if (showImpact) {
+        loadImpact(selectedDataset, selectedColumn);
+      }
+    }
+    if (selectedDataset) {
+      loadColumns(selectedDataset);
+    }
+    loadDatasets();
   };
 
   const handleCopyPath = useCallback((path, event) => {
@@ -451,9 +468,11 @@ function ColumnLineage() {
       // Always show label for better UX (hover target)
       const labelText = transformLabel;
 
+      // Generate unique ID from source/target if backend doesn't provide one
+      const edgeId = e.id || `${e.source_dataset_id}-${e.source_column}-${e.target_dataset_id}-${e.target_column}`;
 
       return {
-        id: e.id,
+        id: edgeId,
         source: sourceKey,
         target: targetKey,
         type: 'tooltipEdge',
@@ -531,66 +550,80 @@ function ColumnLineage() {
         title="Column Lineage"
         description="Track field-level data flow and transformations"
         icon={Network}
-      >
-        <div className="selectors">
-          <div className="selector">
-            <label>Dataset</label>
-            <div className="select-wrapper">
-              <select
-                value={selectedDataset}
-                onChange={(e) => {
-                  setSelectedDataset(e.target.value);
-                  setShowImpact(false);
-                  loadColumns(e.target.value);
-                }}
-              >
-                {datasets.map((d) => {
-                  const { bucket, displayName } = parseDatasetName(d.name);
-                  return (
-                    <option key={d.id} value={d.name}>
-                      {bucket ? `${displayName} (${bucket})` : displayName}
-                    </option>
-                  );
-                })}
-              </select>
-              <ChevronDown size={18} className="select-icon" />
+      />
+
+      {datasets.length > 0 && (
+        <div className="column-controls-bar">
+          <div className="selectors">
+            <div className="selector">
+              <label>Dataset</label>
+              <div className="select-wrapper">
+                <select
+                  value={selectedDataset}
+                  onChange={(e) => {
+                    setSelectedDataset(e.target.value);
+                    setShowImpact(false);
+                    loadColumns(e.target.value);
+                  }}
+                >
+                  {datasets.map((d) => {
+                    const { bucket, displayName } = parseDatasetName(d.name);
+                    return (
+                      <option key={d.id} value={d.name}>
+                        {bucket ? `${displayName} (${bucket})` : displayName}
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronDown size={18} className="select-icon" />
+              </div>
+            </div>
+            <div className="selector">
+              <label>Column</label>
+              <div className="select-wrapper">
+                <select
+                  value={selectedColumn}
+                  onChange={(e) => {
+                    setSelectedColumn(e.target.value);
+                    setShowImpact(false);
+                    loadLineage(selectedDataset, e.target.value);
+                  }}
+                  disabled={columns.length === 0}
+                >
+                  {columns.length === 0 ? (
+                    <option value="">No columns with lineage</option>
+                  ) : (
+                    columns.map((c) => (
+                      <option key={c.column_name} value={c.column_name}>
+                        {c.column_name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <ChevronDown size={18} className="select-icon" />
+              </div>
             </div>
           </div>
-          <div className="selector">
-            <label>Column</label>
-            <div className="select-wrapper">
-              <select
-                value={selectedColumn}
-                onChange={(e) => {
-                  setSelectedColumn(e.target.value);
-                  setShowImpact(false);
-                  loadLineage(selectedDataset, e.target.value);
-                }}
-                disabled={columns.length === 0}
-              >
-                {columns.length === 0 ? (
-                  <option value="">No columns with lineage</option>
-                ) : (
-                  columns.map((c) => (
-                    <option key={c.column_name} value={c.column_name}>
-                      {c.column_name}
-                    </option>
-                  ))
-                )}
-              </select>
-              <ChevronDown size={18} className="select-icon" />
-            </div>
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <button
+              className="refresh-btn"
+              onClick={handleRefresh}
+              title="Refresh data from database"
+            >
+              <RefreshCw size={16} />
+              <span>Refresh</span>
+            </button>
+            <button
+              className={`impact-btn ${showImpact ? 'active' : ''}`}
+              onClick={handleShowImpact}
+              disabled={!selectedColumn}
+            >
+              <Zap size={16} />
+              <span>Impact Analysis</span>
+            </button>
           </div>
         </div>
-        <button
-          className={`impact-btn ${showImpact ? 'active' : ''}`}
-          onClick={handleShowImpact}
-          disabled={!selectedColumn}
-        >
-          <Zap size={16} />
-          <span>Impact Analysis</span>
-        </button>
-      </PageHeader>
+      )}
 
       <div className="lineage-info-bar">
         <div className="transform-legend">

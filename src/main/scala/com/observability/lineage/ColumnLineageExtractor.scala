@@ -53,9 +53,56 @@ object ColumnLineageExtractor extends LazyLogging {
 
     traversePlanForColumnLineage(plan, targetDataset, attributeOrigins, edges)
 
+    // FALLBACK: Handle implicit column propagation (SELECT *, joins without explicit Project)
+    // If we have output columns but few/no lineage edges, try to infer lineage from schema matching
+    if (edges.size < plan.output.size * 0.5) {  // Less than 50% coverage
+      logger.debug(s"Low lineage coverage (${edges.size}/${plan.output.size}), attempting schema-based fallback")
+      addImplicitColumnLineage(plan, targetDataset, inputTableNames, attributeOrigins, edges)
+    }
+
     val result = edges.toSeq.distinct
     logger.debug(s"Extracted ${result.size} column lineage edges")
     result
+  }
+
+  /**
+   * Add implicit column lineage for columns that were propagated without explicit transformations
+   * This handles SELECT *, joins, and other cases where columns pass through implicitly
+   */
+  private def addImplicitColumnLineage(
+    plan: LogicalPlan,
+    targetDataset: String,
+    inputTableNames: Set[String],
+    attributeOrigins: Map[Long, (String, String)],
+    edges: mutable.ListBuffer[ColumnLineageEdge]
+  ): Unit = {
+    // Get columns that already have lineage
+    val coveredTargetColumns = edges.map(_.targetColumn).toSet
+
+    // For each output column without lineage
+    plan.output.foreach { outputAttr =>
+      val targetColumn = outputAttr.name
+
+      if (!coveredTargetColumns.contains(targetColumn)) {
+        // Check attributeOrigins for this column
+        attributeOrigins.get(outputAttr.exprId.id) match {
+          case Some((sourceDataset, sourceColumn)) =>
+            // Create DIRECT lineage edge
+            edges += ColumnLineageEdge(
+              sourceDatasetName = sourceDataset,
+              sourceColumn = sourceColumn,
+              targetDatasetName = targetDataset,
+              targetColumn = targetColumn,
+              transformType = TransformType.DIRECT,
+              expression = None
+            )
+            logger.trace(s"Added implicit lineage: $sourceDataset.$sourceColumn -> $targetDataset.$targetColumn")
+
+          case None =>
+            logger.trace(s"No attribute origin found for output column: $targetColumn (${outputAttr.exprId.id})")
+        }
+      }
+    }
   }
 
   /**

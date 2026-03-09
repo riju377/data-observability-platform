@@ -4,13 +4,18 @@ Ingest API Router
 Endpoints for Spark jobs to push observability data.
 All endpoints require API key authentication with "ingest" scope.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 import json
 import logging
 
-# Setup file logging to debug intake
-logging.basicConfig(filename='api_ingest.log', level=logging.INFO)
+# Setup logging to stdout for real-time debugging
+import sys
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
@@ -115,7 +120,11 @@ class IngestPayload(BaseModel):
     
     # Job-level execution metrics (CPU, Spill, Memory)
     execution_metrics: Optional[dict] = None
-    
+
+    # Executor configuration (for utilization metrics)
+    executor_memory_mb: Optional[int] = None
+    executor_cores: Optional[int] = None
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -397,20 +406,24 @@ def process_metadata(payload: IngestPayload, org_id: str):
                     final_job_name = payload.job_name or payload.job_id or "Unknown Job"
 
                     # Prepare execution metrics
-                    logger.info(f"Creating/updating job entry: {final_job_name} ({payload.job_id})")
+                    logger.info(f"Creating/updating job entry: {final_job_name} ({payload.job_id}) for org {org_id}")
                     exec_metrics_json = json.dumps(payload.execution_metrics)
                     status = "SUCCESS" # We assume success if we got here
 
                     # Use new started_at/ended_at fields, fallback to timestamp for backwards compatibility
-                    started_at = payload.started_at or payload.timestamp or datetime.now()
-                    ended_at = payload.ended_at or payload.timestamp or datetime.now()
+                    # Always use UTC timezone for consistency across EMR and local runs
+                    started_at = payload.started_at or payload.timestamp or datetime.now(timezone.utc)
+                    ended_at = payload.ended_at or payload.timestamp or datetime.now(timezone.utc)
+
+                    logger.info(f"Upserting job: org={org_id}, name={final_job_name}, started_at={started_at}")
 
                     cursor.execute("""
                         INSERT INTO jobs (
                             organization_id, job_name, updated_at,
-                            status, started_at, ended_at, last_execution_id, execution_metrics, metadata
+                            status, started_at, ended_at, last_execution_id, execution_metrics, metadata,
+                            executor_memory_mb, executor_cores
                         )
-                        VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s::jsonb)
+                        VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
                         ON CONFLICT (organization_id, job_name)
                         DO UPDATE SET
                             updated_at = NOW(),
@@ -419,7 +432,9 @@ def process_metadata(payload: IngestPayload, org_id: str):
                             ended_at = EXCLUDED.ended_at,
                             last_execution_id = EXCLUDED.last_execution_id,
                             execution_metrics = EXCLUDED.execution_metrics,
-                            metadata = EXCLUDED.metadata
+                            metadata = EXCLUDED.metadata,
+                            executor_memory_mb = EXCLUDED.executor_memory_mb,
+                            executor_cores = EXCLUDED.executor_cores
                         RETURNING id
                     """, (
                         org_id,
@@ -429,23 +444,31 @@ def process_metadata(payload: IngestPayload, org_id: str):
                         ended_at,
                         payload.job_id,
                         exec_metrics_json,
-                        json.dumps({"application_id": payload.application_id}) if payload.application_id else None
+                        json.dumps({"application_id": payload.application_id}) if payload.application_id else None,
+                        payload.executor_memory_mb,
+                        payload.executor_cores
                     ))
                     job_row = cursor.fetchone()
 
                     if not job_row:
                         # Fallback: SELECT if RETURNING failed
+                        logger.warning(f"RETURNING failed for job {final_job_name}, falling back to SELECT")
                         cursor.execute(
                             "SELECT id FROM jobs WHERE organization_id = %s AND job_name = %s",
                             (org_id, final_job_name)
                         )
                         job_row = cursor.fetchone()
 
-                    logger.info(f"Job entry created/updated successfully: {final_job_name}")
+                    if job_row:
+                        logger.info(f"✓ Job entry created/updated successfully: {final_job_name} (ID: {job_row['id']})")
+                    else:
+                        logger.error(f"✗ Failed to create/update job {final_job_name} - no row returned!")
                 else:
                     logger.debug(f"Skipping job creation for {payload.job_id} - no execution metrics (lineage-only)")
             except Exception as e:
-                logger.error(f"Error upserting job {payload.job_id}: {str(e)}")
+                logger.error(f"✗ ERROR upserting job {payload.job_id}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
             
             # Removed: Steps for separate job_executions table
 
@@ -519,8 +542,9 @@ def process_metadata(payload: IngestPayload, org_id: str):
                         payload.job_id, payload.job_name, org_id
                     ))
 
+            logger.info(f"Committing transaction for job {payload.job_id}...")
             conn.commit()
-            logger.info(f"Processed metadata for job {payload.job_id}: {len(unique_tables)} datasets, {len(payload.lineage_edges)} edges, {len(payload.column_lineage)} column edges")
+            logger.info(f"✓ COMMITTED: Processed metadata for job {payload.job_id}: {len(unique_tables)} datasets, {len(payload.lineage_edges)} edges, {len(payload.column_lineage)} column edges")
 
             # 6. Trigger Backend Anomaly Detection
             try:

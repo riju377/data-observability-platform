@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Loader2, Zap, CheckCircle, Clock, XCircle, ArrowLeft,
-  AlertTriangle, AlertOctagon, Info, ThumbsUp, Search, Workflow
+  AlertTriangle, AlertOctagon, Info, ThumbsUp, Search, Workflow, Target
 } from 'lucide-react';
 import { getJobs, getJob, getJobsSummary } from '../services/api';
 import PageHeader from '../components/PageHeader';
@@ -76,14 +76,6 @@ function calculateGcRatio(job) {
   const execMs = getMetric(job, 'executionTimeMs') || job.duration_ms || 0;
   if (execMs === 0) return null;
   return gcMs / execMs;
-}
-
-function calculateShuffleLocality(job) {
-  const remote = getMetric(job, 'shuffleRemoteBytesRead');
-  const local = getMetric(job, 'shuffleLocalBytesRead');
-  const total = remote + local;
-  if (total === 0) return null;
-  return local / total;
 }
 
 // ─── Optimization Signal Detection ───────────────────
@@ -165,27 +157,30 @@ function analyzeOptimizationSignals(job) {
     }
   }
 
-  // 5. Shuffle Locality (WARNING/INFO)
-  const remoteRead = m.shuffleRemoteBytesRead || 0;
-  const localRead = m.shuffleLocalBytesRead || 0;
-  const totalRead = remoteRead + localRead;
-  if (totalRead > 0) {
-    const remoteRatio = remoteRead / totalRead;
-    if (remoteRatio > 0.95) {
+  // 5. Task Locality (CRITICAL/WARNING)
+  const processLocal = m.processLocalTasks || 0;
+  const nodeLocal = m.nodeLocalTasks || 0;
+  const rackLocal = m.rackLocalTasks || 0;
+  const anyLocality = m.anyLocalityTasks || 0;
+  const totalLocalityTasks = processLocal + nodeLocal + rackLocal + anyLocality;
+
+  if (totalLocalityTasks > 0) {
+    const anyPercent = (anyLocality / totalLocalityTasks) * 100;
+    if (anyPercent > 30) {
       signals.push({
-        type: 'Shuffle Locality',
+        type: 'Poor Task Locality',
+        severity: 'critical',
+        stage: null,
+        message: `${anyPercent.toFixed(1)}% of tasks had ANY locality (data fetched remotely)`,
+        recommendation: 'Resource contention detected. Increase executor count, add more cores, or repartition data to improve locality.',
+      });
+    } else if (anyPercent > 10) {
+      signals.push({
+        type: 'Task Locality',
         severity: 'warning',
         stage: null,
-        message: `${(remoteRatio * 100).toFixed(1)}% of shuffle reads are remote (network-bound)`,
-        recommendation: 'Poor data locality. Enable locality-aware scheduling or increase replication factor.',
-      });
-    } else if (remoteRatio > 0.80) {
-      signals.push({
-        type: 'Shuffle Locality',
-        severity: 'info',
-        stage: null,
-        message: `${(remoteRatio * 100).toFixed(1)}% of shuffle reads are remote`,
-        recommendation: 'Consider co-locating data or adjusting shuffle partition count.',
+        message: `${anyPercent.toFixed(1)}% of tasks had ANY locality`,
+        recommendation: 'Some tasks waited for preferred executors. Consider adding capacity or adjusting spark.locality.wait.',
       });
     }
   }
@@ -636,7 +631,6 @@ function DetailView({ job, onBack }) {
   // Calculate derived metrics for cards
   const cpuUtil = calculateCpuUtilization(job);
   const gcRatio = calculateGcRatio(job);
-  const shuffleLocality = calculateShuffleLocality(job);
 
   return (
     <div className="jobs-detail">
@@ -674,18 +668,58 @@ function DetailView({ job, onBack }) {
           severity={gcRatio ? (gcRatio > 0.25 ? 'critical' : gcRatio > 0.1 ? 'warning' : 'success') : 'info'}
         />
         <MetricCard
-          title="Shuffle Locality"
-          value={shuffleLocality ? formatPercent(shuffleLocality) : '—'}
+          title="Task Locality"
+          value={(() => {
+            const processLocal = getMetric(job, 'processLocalTasks') || 0;
+            const nodeLocal = getMetric(job, 'nodeLocalTasks') || 0;
+            const rackLocal = getMetric(job, 'rackLocalTasks') || 0;
+            const anyLocality = getMetric(job, 'anyLocalityTasks') || 0;
+            const total = processLocal + nodeLocal + rackLocal + anyLocality;
+
+            if (total === 0) return '—';
+
+            const good = processLocal + nodeLocal;
+            return `${((good / total) * 100).toFixed(1)}% Good`;
+          })()}
           unit=""
-          icon={CheckCircle}
-          severity={shuffleLocality ? (shuffleLocality > 0.5 ? 'success' : shuffleLocality > 0.2 ? 'warning' : 'critical') : 'info'}
+          icon={Target}
+          severity={(() => {
+            const processLocal = getMetric(job, 'processLocalTasks') || 0;
+            const nodeLocal = getMetric(job, 'nodeLocalTasks') || 0;
+            const rackLocal = getMetric(job, 'rackLocalTasks') || 0;
+            const anyLocality = getMetric(job, 'anyLocalityTasks') || 0;
+            const total = processLocal + nodeLocal + rackLocal + anyLocality;
+
+            if (total === 0) return 'info';
+
+            const anyPercent = anyLocality / total;
+            return anyPercent > 0.3 ? 'critical' : anyPercent > 0.1 ? 'warning' : 'success';
+          })()}
         />
         <MetricCard
-          title="Peak Memory"
-          value={formatBytes(getMetric(job, 'peakExecutionMemory'))}
+          title="Max Executor Memory"
+          value={(() => {
+            const maxMem = getMetric(job, 'maxMemoryPerExecutorBytes');
+            const configMem = job.executor_memory_mb;
+            if (!maxMem) return '—';
+
+            const memGB = maxMem / (1024 ** 3);
+            if (configMem) {
+              const configGB = configMem / 1024;
+              const utilization = (maxMem / (configMem * 1024 * 1024));
+              return `${memGB.toFixed(2)} GB (${(utilization * 100).toFixed(1)}%)`;
+            }
+            return formatBytes(maxMem);
+          })()}
           unit=""
           icon={AlertOctagon}
-          severity="info"
+          severity={(() => {
+            const maxMem = getMetric(job, 'maxMemoryPerExecutorBytes');
+            const configMem = job.executor_memory_mb;
+            if (!maxMem || !configMem) return 'info';
+            const utilization = (maxMem / (configMem * 1024 * 1024));
+            return utilization > 0.9 ? 'critical' : utilization > 0.75 ? 'warning' : 'success';
+          })()}
         />
       </div>
 
@@ -787,7 +821,128 @@ function JobMetricsTable({ job }) {
               <td className="label">Failed Tasks</td>
               <td className="value">{formatNumber(m.failedTasks)}</td>
             </tr>
-            <tr><td className="label">Peak Memory</td><td className="value">{formatBytes(m.peakExecutionMemory)}</td></tr>
+
+            {/* NEW: Executor-level memory metrics */}
+            {m.maxMemoryPerExecutorBytes && (
+              <tr>
+                <td className="label">
+                  Max Memory Per Executor
+                  <span className="label-hint"> (actionable for tuning)</span>
+                </td>
+                <td className="value">
+                  {(() => {
+                    const maxMem = m.maxMemoryPerExecutorBytes;
+                    const configMem = job.executor_memory_mb;
+                    const memGB = maxMem / (1024 ** 3);
+
+                    if (configMem) {
+                      const configGB = configMem / 1024;
+                      const utilization = (maxMem / (configMem * 1024 * 1024));
+                      return (
+                        <span className={utilization > 0.9 ? 'text-critical' : utilization > 0.75 ? 'text-warning' : ''}>
+                          {memGB.toFixed(2)} GB / {configGB.toFixed(0)} GB ({(utilization * 100).toFixed(1)}%)
+                        </span>
+                      );
+                    }
+                    return formatBytes(maxMem);
+                  })()}
+                </td>
+              </tr>
+            )}
+
+            {m.maxMemoryPerCoreBytes && (
+              <tr>
+                <td className="label">Max Memory Per Core</td>
+                <td className="value">{formatBytes(m.maxMemoryPerCoreBytes)}</td>
+              </tr>
+            )}
+
+            {m.avgMemoryPerExecutorBytes && (
+              <tr>
+                <td className="label">Avg Executor Memory</td>
+                <td className="value">{formatBytes(m.avgMemoryPerExecutorBytes)}</td>
+              </tr>
+            )}
+
+            {m.executorCount && (
+              <tr>
+                <td className="label">Executor Count</td>
+                <td className="value">{m.executorCount}</td>
+              </tr>
+            )}
+
+            {/* Task Locality Metrics */}
+            {(m.processLocalTasks !== undefined || m.nodeLocalTasks !== undefined ||
+              m.rackLocalTasks !== undefined || m.anyLocalityTasks !== undefined) && (
+              <>
+                <tr>
+                  <td colSpan="2" style={{ paddingTop: '1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+                    Task Locality Distribution
+                  </td>
+                </tr>
+                {m.processLocalTasks !== undefined && (
+                  <tr>
+                    <td className="label">
+                      PROCESS_LOCAL
+                      <span className="label-hint"> (best - data in same JVM)</span>
+                    </td>
+                    <td className="value text-success">{formatNumber(m.processLocalTasks)}</td>
+                  </tr>
+                )}
+                {m.nodeLocalTasks !== undefined && (
+                  <tr>
+                    <td className="label">
+                      NODE_LOCAL
+                      <span className="label-hint"> (data on same node)</span>
+                    </td>
+                    <td className="value">{formatNumber(m.nodeLocalTasks)}</td>
+                  </tr>
+                )}
+                {m.rackLocalTasks !== undefined && (
+                  <tr>
+                    <td className="label">
+                      RACK_LOCAL
+                      <span className="label-hint"> (data in same rack)</span>
+                    </td>
+                    <td className="value">{formatNumber(m.rackLocalTasks)}</td>
+                  </tr>
+                )}
+                {m.anyLocalityTasks !== undefined && (
+                  <tr className={m.anyLocalityTasks > 0 ? 'highlight' : ''}>
+                    <td className="label">
+                      ANY
+                      <span className="label-hint"> (worst - data fetched remotely)</span>
+                    </td>
+                    <td className="value">
+                      <span className={m.anyLocalityTasks > 0 ? 'text-critical' : ''}>
+                        {formatNumber(m.anyLocalityTasks)}
+                        {(() => {
+                          const total = (m.processLocalTasks || 0) + (m.nodeLocalTasks || 0) +
+                                        (m.rackLocalTasks || 0) + (m.anyLocalityTasks || 0);
+                          if (total > 0 && m.anyLocalityTasks > 0) {
+                            const anyPercent = (m.anyLocalityTasks / total) * 100;
+                            return ` (${anyPercent.toFixed(1)}%)`;
+                          }
+                          return '';
+                        })()}
+                      </span>
+                    </td>
+                  </tr>
+                )}
+              </>
+            )}
+
+            {/* OLD: Keep deprecated peak memory for comparison (grayed out) */}
+            {m.peakExecutionMemory && !m.maxMemoryPerExecutorBytes && (
+              <tr style={{ opacity: 0.5 }}>
+                <td className="label">
+                  Peak Memory
+                  <span className="label-hint"> (deprecated - sum of all tasks)</span>
+                </td>
+                <td className="value">{formatBytes(m.peakExecutionMemory)}</td>
+              </tr>
+            )}
+
             <tr><td className="label">CPU Time</td><td className="value">{formatDuration(nsToMs(m.executorCpuTimeNs))}</td></tr>
             <tr><td className="label">GC Time</td><td className="value">{formatDuration(m.jvmGcTimeMs)}</td></tr>
           </tbody>

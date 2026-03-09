@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import ReactFlow, { Background, Controls, MiniMap, MarkerType } from 'reactflow';
+import ReactFlow, { Background, Controls, MiniMap, MarkerType, BaseEdge, EdgeLabelRenderer, getBezierPath } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { getCachedDatasets, getCachedLineageGraph } from '../services/cachedApi';
-import { GitBranch, ChevronDown, ArrowRight, Loader2, Database, Copy, Check } from 'lucide-react';
+import { GitBranch, ChevronDown, ArrowRight, Loader2, Database, Copy, Check, Workflow } from 'lucide-react';
 import { getLayoutedElements } from '../utils/layoutGraph';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
@@ -21,6 +21,93 @@ function parseDatasetName(name) {
   }
   return { bucket: null, displayName: name };
 }
+
+// Custom edge with hover tooltip for job info
+function LineageEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, data }) {
+  const [hovered, setHovered] = useState(false);
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  });
+
+  const hasJobInfo = data?.job_name &&
+    data.job_name !== 'lineage-capture' &&
+    data.job_name.toLowerCase() !== 'unknown' &&
+    data.job_name !== 'command';
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={style}
+        markerEnd={markerEnd}
+      />
+      {hasJobInfo && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'all',
+              zIndex: 1000,
+            }}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+          >
+            {/* Small indicator on edge */}
+            <div
+              style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: hovered ? '#667eea' : 'rgba(102, 126, 234, 0.5)',
+                border: '1.5px solid white',
+                cursor: 'help',
+                transition: 'all 0.2s ease',
+                boxShadow: hovered ? '0 2px 8px rgba(102, 126, 234, 0.4)' : 'none',
+              }}
+            />
+            {/* Tooltip on hover */}
+            {hovered && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  marginBottom: '12px',
+                  background: 'white',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  padding: '8px 12px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                  whiteSpace: 'nowrap',
+                  fontSize: '12px',
+                  color: '#4a5568',
+                  zIndex: 10000,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Workflow size={12} />
+                  <span style={{ fontWeight: '500' }}>Job:</span>
+                  <span>{data.job_name}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const edgeTypes = { lineageEdge: LineageEdge };
 
 function Lineage() {
   const [datasets, setDatasets] = useState([]);
@@ -235,17 +322,11 @@ function Lineage() {
     });
 
     const flowEdges = Array.from(edgeMap.values()).map((e) => {
-      const isDefaultName = !e.job_name ||
-        e.job_name === 'lineage-capture' ||
-        e.job_name.toLowerCase() === 'unknown';
-
-      const labelText = isDefaultName ? undefined : e.job_name;
-
       return {
         id: e.id,
         source: e.source_dataset_id,
         target: e.target_dataset_id,
-        type: 'bezier',
+        type: 'lineageEdge',  // Use custom edge with hover tooltip
         animated: true,
         style: {
           stroke: '#667eea',
@@ -258,24 +339,9 @@ function Lineage() {
           width: 20,
           height: 20,
         },
-        ...(labelText ? {
-          label: labelText,
-          labelStyle: {
-            fontSize: 10,
-            fill: '#4a4a6a',
-            fontWeight: '500',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-          },
-          labelBgStyle: {
-            fill: 'rgba(255, 255, 255, 0.9)',
-            fillOpacity: 1,
-            rx: 4,
-            ry: 4,
-            stroke: '#e2e8f0',
-            strokeWidth: 1,
-          },
-          labelBgPadding: [4, 6],
-        } : {}),
+        data: {
+          job_name: e.job_name,
+        },
       };
     });
 
@@ -398,6 +464,7 @@ function Lineage() {
           <ReactFlow
             nodes={nodes}
             edges={edges}
+            edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.3 }}
             minZoom={0.3}

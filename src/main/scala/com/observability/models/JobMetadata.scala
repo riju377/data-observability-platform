@@ -23,6 +23,10 @@ case class JobMetadata(
   // Metrics
   metrics: JobMetrics,
 
+  // Executor configuration (for utilization metrics)
+  executorMemoryMb: Option[Long] = None,
+  executorCores: Option[Int] = None,
+
   // Error information (if failed)
   errorMessage: Option[String] = None
 )
@@ -95,11 +99,15 @@ case class JobMetrics(
   // Memory / Spill
   memoryBytesSpilled: Option[Long] = None,
   diskBytesSpilled: Option[Long] = None,
-  peakExecutionMemory: Option[Long] = None,
+  peakExecutionMemory: Option[Long] = None,  // DEPRECATED: Sum of all tasks (misleading)
+
+  // NEW: Executor-level memory metrics (actionable for Spark tuning)
+  maxMemoryPerExecutorBytes: Option[Long] = None,  // Peak memory on any single executor
+  maxMemoryPerCoreBytes: Option[Long] = None,      // Max memory per core
+  avgMemoryPerExecutorBytes: Option[Long] = None,  // Average across executors
+  executorCount: Option[Int] = None,               // Number of executors used
 
   // Detailed shuffle read
-  shuffleRemoteBytesRead: Option[Long] = None,
-  shuffleLocalBytesRead: Option[Long] = None,
   shuffleRemoteBytesReadToDisk: Option[Long] = None,
   shuffleFetchWaitTimeMs: Option[Long] = None,
   shuffleRecordsRead: Option[Long] = None,
@@ -108,7 +116,13 @@ case class JobMetrics(
 
   // Detailed shuffle write
   shuffleWriteTimeNs: Option[Long] = None,
-  shuffleRecordsWritten: Option[Long] = None
+  shuffleRecordsWritten: Option[Long] = None,
+
+  // Task locality metrics (actionable for resource contention detection)
+  processLocalTasks: Option[Int] = None,      // Tasks with PROCESS_LOCAL locality (best)
+  nodeLocalTasks: Option[Int] = None,         // Tasks with NODE_LOCAL locality
+  rackLocalTasks: Option[Int] = None,         // Tasks with RACK_LOCAL locality
+  anyLocalityTasks: Option[Int] = None        // Tasks with ANY locality (performance issue!)
 )
 
 /**

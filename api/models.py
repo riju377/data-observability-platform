@@ -126,7 +126,7 @@ class TransformType(str, Enum):
 
 class ColumnLineageEdge(BaseModel):
     """Edge in the column lineage graph"""
-    id: str
+    id: Optional[str] = None
     source_dataset_id: str
     source_dataset_name: Optional[str] = None
     source_column: str
@@ -213,7 +213,6 @@ class ImpactedDataset(BaseModel):
     dataset_name: str
     dataset_type: Optional[str] = None
     columns: List[ImpactedColumn]
-    total_columns_affected: int
     max_depth: int
 
 class ImpactAnalysis(BaseModel):

@@ -18,17 +18,45 @@ function Dashboard() {
 
   const loadData = async () => {
     try {
-      const [datasets, anomalies, alerts] = await Promise.all([
+      console.log('🔍 Dashboard: Starting to load data...');
+      // Use Promise.allSettled so one failing endpoint doesn't break everything
+      const results = await Promise.allSettled([
         getCachedDatasets(),
         getCachedAnomalies(168, null, 100),
         getCachedAlertHistory(168),
       ]);
 
-      setStats({
+      // Extract successful results, use empty arrays for failures
+      const datasets = results[0].status === 'fulfilled' ? results[0].value : [];
+      const anomalies = results[1].status === 'fulfilled' ? results[1].value : [];
+      const alerts = results[2].status === 'fulfilled' ? results[2].value : [];
+
+      // Log any failures
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          const names = ['datasets', 'anomalies', 'alerts'];
+          console.warn(`⚠️ Dashboard: Failed to load ${names[index]}:`, result.reason);
+        }
+      });
+
+      console.log('🔍 Dashboard: Data received:', {
+        datasets: datasets,
+        datasetsType: typeof datasets,
+        datasetsIsArray: Array.isArray(datasets),
+        datasetsLength: datasets?.length,
+        firstDataset: datasets?.[0],
+        anomalies: anomalies?.length,
+        alerts: alerts?.length,
+      });
+
+      const newStats = {
         datasets: datasets?.length || 0,
         anomalies: anomalies?.length || 0,
         alerts: alerts?.length || 0,
-      });
+      };
+
+      console.log('🔍 Dashboard: Setting stats:', newStats);
+      setStats(newStats);
 
       const severityCount = (anomalies || []).reduce((acc, a) => {
         acc[a.severity] = (acc[a.severity] || 0) + 1;
@@ -40,7 +68,12 @@ function Dashboard() {
       );
       setLoading(false);
     } catch (error) {
-      console.error('Failed to load dashboard data:', error);
+      console.error('🔴 Dashboard: ERROR loading data:', error);
+      console.error('🔴 Dashboard: Error details:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response
+      });
       setStats({ datasets: 0, anomalies: 0, alerts: 0 });
       setAnomaliesBySeverity([]);
       setLoading(false);
@@ -61,11 +94,17 @@ function Dashboard() {
         icon={LayoutDashboard}
       />
 
-      {loading ? (
-        <LoadingSpinner message="Loading dashboard..." />
-      ) : stats.datasets === 0 ? (
-        <GettingStarted />
-      ) : (
+      {(() => {
+        console.log('🔍 Dashboard: Render check:', { loading, stats, showingGuide: stats.datasets === 0 });
+        if (loading) {
+          return <LoadingSpinner message="Loading dashboard..." />;
+        }
+        if (stats.datasets === 0) {
+          console.log('⚠️ Dashboard: Showing integration guide because stats.datasets === 0');
+          return <GettingStarted />;
+        }
+        console.log('✅ Dashboard: Showing dashboard with', stats.datasets, 'datasets');
+        return (
         <>
           <div className="stats-grid">
         <div className="stat-card">
@@ -142,7 +181,8 @@ function Dashboard() {
         </div>
       </div>
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }

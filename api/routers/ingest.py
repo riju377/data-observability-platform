@@ -525,13 +525,11 @@ def process_metadata(payload: IngestPayload, org_id: str):
                             source_dataset_id, source_column,
                             target_dataset_id, target_column,
                             transform_type, expression,
-                            job_id, job_name, organization_id, created_at
+                            organization_id, created_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
                         ON CONFLICT (source_dataset_id, source_column, target_dataset_id, target_column)
                         DO UPDATE SET
-                            job_id = EXCLUDED.job_id,
-                            job_name = EXCLUDED.job_name,
                             transform_type = EXCLUDED.transform_type,
                             expression = EXCLUDED.expression,
                             created_at = NOW()
@@ -539,7 +537,7 @@ def process_metadata(payload: IngestPayload, org_id: str):
                         source_id, cl.source_column,
                         target_id, cl.target_column,
                         cl.transformation_type, cl.expression,
-                        payload.job_id, payload.job_name, org_id
+                        org_id
                     ))
 
             logger.info(f"Committing transaction for job {payload.job_id}...")

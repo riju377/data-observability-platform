@@ -720,12 +720,13 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
 
     // COLUMN-LEVEL LINEAGE: Extract and publish column dependencies
     try {
+      logger.info(s"Attempting column lineage extraction for query $queryId...")
       val columnEdges = ColumnLineageExtractor.extractColumnLineage(qe.logical)
       if (columnEdges.nonEmpty) {
-        logger.debug(s"Extracted ${columnEdges.size} column lineage edges for query $queryId")
+        logger.info(s"✓ Extracted ${columnEdges.size} column lineage edges for query $queryId")
         MetadataPublisher.publishColumnLineage(columnEdges, queryId, funcName, sparkConf)
       } else {
-        logger.debug("No column lineage edges extracted from this query")
+        logger.warn(s"⚠ No column lineage edges extracted from this query (outputs: ${outputTables.size}, inputs: ${inputTables.size})")
       }
     } catch {
       case e: Exception =>

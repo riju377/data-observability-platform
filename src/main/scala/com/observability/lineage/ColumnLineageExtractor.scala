@@ -27,14 +27,15 @@ object ColumnLineageExtractor extends LazyLogging {
    * @return Sequence of column lineage edges
    */
   def extractColumnLineage(plan: LogicalPlan): Seq[ColumnLineageEdge] = {
-    logger.debug("Extracting column-level lineage")
+    logger.info("📊 Starting column-level lineage extraction")
 
     val edges = mutable.ListBuffer[ColumnLineageEdge]()
 
     // Find output table name (target)
     val outputTables = QueryPlanParser.extractOutputTables(plan)
     if (outputTables.isEmpty) {
-      logger.debug("No output tables found, skipping column lineage extraction")
+      logger.warn("⚠ No output tables found in plan, skipping column lineage extraction")
+      logger.debug(s"Plan class: ${plan.getClass.getSimpleName}, plan: ${plan.toString.take(500)}")
       return Seq.empty
     }
 
@@ -44,8 +45,8 @@ object ColumnLineageExtractor extends LazyLogging {
     val inputTables = QueryPlanParser.extractInputTables(plan)
     val inputTableNames = inputTables.map(_.name).toSet
 
-    logger.debug(s"Target dataset: $targetDataset")
-    logger.debug(s"Source datasets: ${inputTableNames.mkString(", ")}")
+    logger.info(s"Target dataset: $targetDataset (${outputTables.size} outputs)")
+    logger.info(s"Source datasets: ${inputTableNames.mkString(", ")} (${inputTables.size} inputs)")
 
     // Build a map of expression ID to source table/column
     val attributeOrigins = buildAttributeOrigins(plan)
@@ -54,14 +55,25 @@ object ColumnLineageExtractor extends LazyLogging {
     traversePlanForColumnLineage(plan, targetDataset, attributeOrigins, edges)
 
     // FALLBACK: Handle implicit column propagation (SELECT *, joins without explicit Project)
-    // If we have output columns but few/no lineage edges, try to infer lineage from schema matching
-    if (edges.size < plan.output.size * 0.5) {  // Less than 50% coverage
-      logger.debug(s"Low lineage coverage (${edges.size}/${plan.output.size}), attempting schema-based fallback")
+    // ALWAYS run fallback to catch any missed columns (lowered threshold from 0.5 to 0.95)
+    // This ensures we capture lineage even for queries with mostly explicit but some implicit columns
+    val coverage = if (plan.output.nonEmpty) edges.size.toDouble / plan.output.size else 1.0
+    if (coverage < 0.95) {  // Less than 95% coverage - run fallback
+      val beforeCount = edges.size
+      logger.debug(s"Column lineage coverage: ${(coverage * 100).toInt}% (${edges.size}/${plan.output.size}), running schema-based fallback")
       addImplicitColumnLineage(plan, targetDataset, inputTableNames, attributeOrigins, edges)
+      val afterCount = edges.size
+      logger.info(s"Fallback added ${afterCount - beforeCount} implicit lineage edges (${beforeCount} -> ${afterCount})")
+    } else {
+      logger.debug(s"Column lineage coverage: ${(coverage * 100).toInt}% (${edges.size}/${plan.output.size}), skipping fallback")
     }
 
     val result = edges.toSeq.distinct
-    logger.debug(s"Extracted ${result.size} column lineage edges")
+    if (result.nonEmpty) {
+      logger.info(s"✓ Extracted ${result.size} column lineage edges (distinct)")
+    } else {
+      logger.warn(s"⚠ No column lineage edges extracted! Plan had ${plan.output.size} output columns")
+    }
     result
   }
 
@@ -99,7 +111,26 @@ object ColumnLineageExtractor extends LazyLogging {
             logger.trace(s"Added implicit lineage: $sourceDataset.$sourceColumn -> $targetDataset.$targetColumn")
 
           case None =>
-            logger.trace(s"No attribute origin found for output column: $targetColumn (${outputAttr.exprId.id})")
+            // Fallback: Try name-based matching with input tables
+            // This handles cases where attributeOrigins map is incomplete (e.g., optimized plans)
+            val matchingColumns = attributeOrigins.values.filter(_._2 == targetColumn).toSeq.distinct
+
+            if (matchingColumns.nonEmpty) {
+              // Found source columns with same name in input tables
+              matchingColumns.foreach { case (sourceDataset, sourceColumn) =>
+                edges += ColumnLineageEdge(
+                  sourceDatasetName = sourceDataset,
+                  sourceColumn = sourceColumn,
+                  targetDatasetName = targetDataset,
+                  targetColumn = targetColumn,
+                  transformType = TransformType.DIRECT,
+                  expression = None
+                )
+                logger.trace(s"Added name-based lineage: $sourceDataset.$sourceColumn -> $targetDataset.$targetColumn")
+              }
+            } else {
+              logger.trace(s"No attribute origin found for output column: $targetColumn (${outputAttr.exprId.id})")
+            }
         }
       }
     }
@@ -251,6 +282,40 @@ object ColumnLineageExtractor extends LazyLogging {
           } catch {
             case e: Exception =>
               logger.debug(s"Could not extract Aggregate columns: ${e.getMessage}")
+          }
+
+        case "Join" =>
+          // Join node - extract join condition to track join keys
+          try {
+            val conditionField = node.getClass.getMethod("condition")
+            val condition = conditionField.invoke(node).asInstanceOf[Option[Expression]]
+
+            condition.foreach { cond =>
+              // Extract attributes from join condition (e.g., left.id = right.id)
+              val (sources, _, expression) = analyzeExpression(cond, attributeOrigins)
+
+              // Mark all columns in join condition with JOIN transform type
+              sources.foreach { case (sourceDataset, sourceColumn) =>
+                // Find corresponding output column in plan.output
+                node.output.find(_.name == sourceColumn).foreach { outputAttr =>
+                  edges += ColumnLineageEdge(
+                    sourceDatasetName = sourceDataset,
+                    sourceColumn = sourceColumn,
+                    targetDatasetName = targetDataset,
+                    targetColumn = outputAttr.name,
+                    transformType = TransformType.JOIN,
+                    expression = expression
+                  )
+                }
+              }
+              logger.trace(s"Extracted join condition: ${expression.getOrElse("N/A")}")
+            }
+
+            // Join outputs all columns from both sides - these will be handled by fallback
+            // since they're implicit column propagation (no explicit transformation)
+          } catch {
+            case e: Exception =>
+              logger.debug(s"Could not extract Join condition: ${e.getMessage}")
           }
 
         case _ =>

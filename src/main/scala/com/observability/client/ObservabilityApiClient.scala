@@ -38,11 +38,11 @@ object ObservabilityApiClient extends LazyLogging {
   // Defaults
   val DEFAULT_CONNECT_TIMEOUT = 5000  // 5 seconds
   val DEFAULT_READ_TIMEOUT = 30000    // 30 seconds
-  val DEFAULT_API_URL = "https://data-observability-api.onrender.com"
-  
+  val DEFAULT_API_URL = "https://data-observability-api-3ilve7g5cq-uc.a.run.app"
+
   /**
    * Create client from SparkConf.
-   * URL defaults to the Render deployment if not explicitly set.
+   * URL defaults to the Google Cloud Run deployment if not explicitly set.
    * Only the API key is required.
    * 
    * @return Some(client) if API key is configured, None otherwise

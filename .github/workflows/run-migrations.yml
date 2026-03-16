@@ -1,0 +1,59 @@
+name: Run Database Migrations
+
+on:
+  workflow_dispatch:  # Manual trigger only for safety
+    inputs:
+      migration_file:
+        description: 'Migration file to run (e.g., 010_remove_job_from_column_lineage.sql)'
+        required: true
+        type: string
+
+jobs:
+  migrate:
+    name: Apply Database Migration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Verify Migration File Exists
+        run: |
+          if [ ! -f "api/migrations/${{ inputs.migration_file }}" ]; then
+            echo "❌ Migration file not found: api/migrations/${{ inputs.migration_file }}"
+            exit 1
+          fi
+          echo "✅ Migration file found"
+
+      - name: Show Migration Content
+        run: |
+          echo "## Migration Content" >> $GITHUB_STEP_SUMMARY
+          echo '```sql' >> $GITHUB_STEP_SUMMARY
+          cat "api/migrations/${{ inputs.migration_file }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Apply Migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Applying migration: ${{ inputs.migration_file }}"
+          psql "$DATABASE_URL" -f "api/migrations/${{ inputs.migration_file }}"
+          echo "✅ Migration applied successfully"
+
+      - name: Verify Migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "## Migration Applied Successfully ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**File:** ${{ inputs.migration_file }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "- Verify schema changes in database" >> $GITHUB_STEP_SUMMARY
+          echo "- Test the application" >> $GITHUB_STEP_SUMMARY
+          echo "- Monitor for any errors" >> $GITHUB_STEP_SUMMARY

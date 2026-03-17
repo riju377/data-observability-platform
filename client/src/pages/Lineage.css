@@ -226,33 +226,27 @@
   border-bottom: none;
 }
 
-/* Enhanced Edge Visibility - Professional Arrow Styling */
+/* Enhanced Edge Visibility */
 .flow-container .react-flow__edge {
   z-index: 10 !important;
-  /* Ensure edges appear above background but below nodes */
 }
 
 .flow-container .react-flow__edge-path {
-  stroke-width: 4;
-  /* Thicker arrows for better visibility */
+  stroke-width: 2;
   stroke: var(--primary);
-  opacity: 0.9;
-  /* High opacity for clear visibility */
+  opacity: 0.85;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.15));
+  filter: drop-shadow(0 1px 3px rgba(102, 126, 234, 0.12));
 }
 
 .flow-container .react-flow__edge:hover {
   z-index: 20 !important;
-  /* Bring hovered edge to front */
 }
 
 .flow-container .react-flow__edge:hover .react-flow__edge-path {
-  stroke-width: 5;
-  /* Even thicker on hover */
+  stroke-width: 3;
   opacity: 1;
   stroke: #5568d3;
-  /* Slightly darker on hover */
   filter: drop-shadow(0 3px 8px rgba(102, 126, 234, 0.4));
 }
 
@@ -264,52 +258,26 @@
 
 .flow-container .react-flow__edge:hover .react-flow__edge-marker {
   fill: #5568d3;
-  filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.3));
 }
 
-/* Edge Label Styling */
-.flow-container .react-flow__edge-text {
-  font-size: 11px;
-  font-weight: 600;
-  fill: #1a1a2e;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
-}
-
-.flow-container .react-flow__edge-textbg {
-  fill: #ffffff;
-  stroke: #e0e0e0;
-  stroke-width: 1;
-  rx: 6;
-  ry: 6;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-}
-
-/* Selected Edge Styling */
+/* Selected Edge */
 .flow-container .react-flow__edge.selected .react-flow__edge-path {
   stroke: #5568d3;
-  stroke-width: 5;
+  stroke-width: 3;
   opacity: 1;
   filter: drop-shadow(0 4px 12px rgba(102, 126, 234, 0.5));
 }
 
-/* Animated Edge Enhancement - Corrected data flow animation (source → target) */
+/* Animated Edge Enhancement */
 .flow-container .react-flow__edge.animated .react-flow__edge-path {
-  stroke-dasharray: 5 5;
-  animation: dashFlow 30s linear infinite;
-  /* Correct flow direction */
-  opacity: 0.95;
+  stroke-dasharray: 8 4;
+  animation: dashFlow 20s linear infinite;
+  opacity: 0.9;
 }
 
 @keyframes dashFlow {
-  from {
-    stroke-dashoffset: 100;
-    /* Start offset (flows source → target) */
-  }
-
-  to {
-    stroke-dashoffset: 0;
-    /* End at zero (completes the flow correctly) */
-  }
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
 }
 
 /* Smooth edge curve styling */
@@ -318,31 +286,23 @@
   stroke-linejoin: round;
 }
 
-/* Enhanced Node Visibility */
+/* Node container - let custom node CSS handle styling */
 .flow-container .react-flow__node {
   z-index: 30 !important;
-  /* Nodes above edges */
-  border-radius: var(--radius-lg);
-  border: 2px solid;
-  font-size: 14px;
-  font-weight: 600;
-  box-shadow: var(--shadow-md);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .flow-container .react-flow__node:hover {
   z-index: 40 !important;
-  /* Hovered nodes on top */
-  transform: scale(1.08);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12),
-    0 0 0 3px rgba(102, 126, 234, 0.15);
 }
 
-.flow-container .react-flow__node-default {
-  padding: 14px 24px;
-  min-width: 180px;
-  text-align: center;
-  cursor: pointer;
+/* Reset default ReactFlow node styling for custom nodes */
+.flow-container .react-flow__node-lineageNode {
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* Background Grid */
@@ -357,7 +317,7 @@
 
 /* Zoom Hint Overlay */
 .flow-container::after {
-  content: 'Scroll to zoom \2022 Drag to pan';
+  content: 'Scroll to zoom \2022 Drag to pan \2022 Click node to highlight';
   position: absolute;
   bottom: 16px;
   left: 16px;
@@ -379,11 +339,239 @@
 }
 
 /* ===========================================
-   Empty & Loading States
+   Edge Job Badge (pill on edge)
    =========================================== */
 
-.empty-state,
-.empty-graph {
+.edge-job-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(102, 126, 234, 0.9);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: system-ui, -apple-system, sans-serif;
+  border-radius: 10px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(102, 126, 234, 0.3);
+  transition: all 0.2s ease;
+  cursor: help;
+  backdrop-filter: blur(4px);
+}
+
+.edge-job-badge:hover {
+  background: rgba(102, 126, 234, 1);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.5);
+  transform: scale(1.05);
+}
+
+.edge-job-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  background: rgba(15, 15, 30, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 10000;
+  animation: tooltipFadeIn 0.15s ease-out;
+}
+
+.edge-job-tooltip::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: rgba(15, 15, 30, 0.95);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.edge-job-tooltip__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.edge-job-tooltip__name {
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+/* ===========================================
+   Loading Skeleton
+   =========================================== */
+
+.lineage-skeleton {
+  height: 70vh;
+  min-height: 500px;
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.skeleton-node {
+  width: 160px;
+  height: 70px;
+  border-radius: 10px;
+  background: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #f1f5f9 20%,
+    #cbd5e1 40%,
+    #f1f5f9 60%,
+    #e2e8f0 100%
+  );
+  background-size: 400% 100%;
+  animation: skeletonShimmer 1.8s ease-in-out infinite, skeletonPulse 2s ease-in-out infinite;
+  border: 2px solid #cbd5e1;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-node::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.6) 50%,
+    transparent 100%
+  );
+  animation: skeletonSweep 2s ease-in-out infinite;
+}
+
+.skeleton-node:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.skeleton-node:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.skeleton-node:nth-child(5) {
+  animation-delay: 0.6s;
+}
+
+.skeleton-node--active {
+  border-color: rgba(102, 126, 234, 0.4);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+  animation: skeletonShimmer 1.8s ease-in-out infinite,
+             skeletonPulseActive 2s ease-in-out infinite;
+}
+
+.skeleton-edge {
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    #cbd5e1 0%,
+    #94a3b8 50%,
+    #cbd5e1 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.2s ease-in-out infinite, skeletonEdgePulse 1.5s ease-in-out infinite;
+  border-radius: 2px;
+  position: relative;
+}
+
+.skeleton-edge:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.skeleton-edge:nth-child(4) {
+  animation-delay: 0.4s;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes skeletonSweep {
+  0% {
+    left: -100%;
+  }
+  50%, 100% {
+    left: 100%;
+  }
+}
+
+@keyframes skeletonPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes skeletonPulseActive {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(0.97);
+    box-shadow: 0 0 0 6px rgba(102, 126, 234, 0.25);
+  }
+}
+
+@keyframes skeletonEdgePulse {
+  0%, 100% {
+    opacity: 0.8;
+    transform: scaleX(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1.1);
+  }
+}
+
+/* ===========================================
+   Enhanced Empty State
+   =========================================== */
+
+.empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -397,45 +585,78 @@
   border: 1px solid var(--border);
 }
 
-.empty-graph {
-  height: 600px;
-}
-
-.empty-state h3,
-.empty-graph h3 {
+.empty-state h3 {
   margin: 1rem 0 0.5rem 0;
   color: var(--text-primary);
   font-weight: 600;
 }
 
-.empty-state p,
-.empty-graph p {
+.empty-state p {
   margin: 0;
   color: var(--text-muted);
   max-width: 300px;
 }
 
-.loading,
-.loading-graph {
+.empty-graph-enhanced {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1rem;
-  color: var(--text-muted);
-}
-
-.loading {
-  padding: 6rem 2rem;
-}
-
-.loading-graph {
-  height: 600px;
+  height: 70vh;
+  min-height: 500px;
   background: var(--surface);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
+  text-align: center;
+  color: var(--text-muted);
   border: 1px solid var(--border);
 }
+
+.empty-graph-enhanced h3 {
+  margin: 1.5rem 0 0.5rem 0;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.empty-graph-enhanced p {
+  margin: 0;
+  color: var(--text-muted);
+  max-width: 350px;
+}
+
+.empty-graph-illustration {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.empty-node-placeholder {
+  width: 80px;
+  height: 40px;
+  border-radius: 8px;
+  border: 2px dashed #cbd5e1;
+  background: rgba(226, 232, 240, 0.3);
+  animation: emptyPulse 2.5s ease-in-out infinite;
+}
+
+.empty-node-placeholder--active {
+  border-color: rgba(102, 126, 234, 0.4);
+  background: rgba(102, 126, 234, 0.08);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.06);
+}
+
+.empty-arrow {
+  color: #cbd5e1;
+}
+
+@keyframes emptyPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ===========================================
+   Loading & Spinner
+   =========================================== */
 
 .loading-spinner {
   animation: spin 1s linear infinite;
@@ -443,13 +664,8 @@
 }
 
 @keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* ===========================================
@@ -457,7 +673,9 @@
    =========================================== */
 
 @media (max-width: 1024px) {
-  .flow-container {
+  .flow-container,
+  .lineage-skeleton,
+  .empty-graph-enhanced {
     height: 60vh;
     min-height: 450px;
   }
@@ -500,7 +718,9 @@
     justify-content: center;
   }
 
-  .flow-container {
+  .flow-container,
+  .lineage-skeleton,
+  .empty-graph-enhanced {
     height: 50vh;
     min-height: 400px;
     border-radius: var(--radius-lg);
@@ -512,15 +732,12 @@
     left: 12px;
     padding: 6px 10px;
   }
-
-  .empty-graph,
-  .loading-graph {
-    height: 400px;
-  }
 }
 
 @media (max-width: 480px) {
-  .flow-container {
+  .flow-container,
+  .lineage-skeleton,
+  .empty-graph-enhanced {
     height: 50vh;
     min-height: 350px;
   }
@@ -536,245 +753,6 @@
   .lineage-legend {
     gap: 0.75rem;
   }
-}
-
-/* ===========================================
-   Lineage Node Layout (name + type + path)
-   =========================================== */
-
-.lineage-node {
-  padding: 12px 16px;
-  text-align: left;
-  min-width: 140px;
-  max-width: 280px;
-}
-
-.lineage-node .node-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.lineage-node .node-name-wrapper {
-  flex: 1;
-  background: rgba(0, 0, 0, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 5px;
-  padding: 2px 8px;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 4px;
-}
-
-.lineage-node .node-name {
-  font-weight: 700;
-  font-size: 1rem;
-  color: #fff;
-  letter-spacing: -0.01em;
-  flex: 1;
-  background: transparent;
-  border: none;
-  padding: 0;
-  display: block;
-  min-width: 0;
-  position: relative;
-  overflow: visible;
-}
-
-.lineage-node .node-text-inner {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
-  background: transparent;
-}
-
-.lineage-node .node-type-badge {
-  font-size: 0.65rem;
-  padding: 2px 8px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  flex-shrink: 0;
-}
-
-.lineage-node .node-bucket-badge {
-  font-size: 0.6rem;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.15);
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: 600;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  max-width: 120px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-/* --- All node-internal styles scoped under .lineage-node to prevent
-       CSS collisions with ColumnLineage page --- */
-
-.lineage-node .node-location-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 8px;
-  margin-top: 4px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  overflow: visible;
-}
-
-.lineage-node .node-location {
-  font-size: 0.7rem;
-  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-  color: #fff;
-  line-height: 1.4;
-  min-width: 0;
-  cursor: help;
-  transition: color 0.2s ease;
-  position: relative;
-  flex: 1;
-  display: block;
-  overflow: visible;
-  background: transparent;
-}
-
-.lineage-node .node-location:hover {
-  color: #fff;
-}
-
-.lineage-node .node-location[data-tooltip]::after,
-.lineage-node .node-name[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background: rgba(15, 23, 42, 0.98);
-  color: #f8fafc;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  white-space: normal;
-  opacity: 0;
-  pointer-events: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.1),
-    0 10px 15px -3px rgba(0, 0, 0, 0.2),
-    0 0 0 1px rgba(255, 255, 255, 0.1);
-  z-index: 1000;
-  max-width: 300px;
-  width: max-content;
-  word-break: break-word;
-  line-height: 1.4;
-  backdrop-filter: blur(8px);
-  text-align: center;
-}
-
-.lineage-node .node-location[data-tooltip]::before,
-.lineage-node .node-name[data-tooltip]::before {
-  content: '';
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  border: 6px solid transparent;
-  border-top-color: rgba(15, 23, 42, 0.98);
-  opacity: 0;
-  pointer-events: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 1001;
-}
-
-.lineage-node .node-location:hover::after,
-.lineage-node .node-location:hover::before,
-.lineage-node .node-name:hover::after,
-.lineage-node .node-name:hover::before {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.lineage-node .copy-path-btn {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  padding: 3px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  box-shadow: none;
-  opacity: 1;
-}
-
-.lineage-node .copy-path-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  transform: scale(1.1);
-  box-shadow: none;
-}
-
-/* Custom Tooltip */
-.lineage-node .node-location::after {
-  content: attr(title);
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(15, 23, 42, 0.95);
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
-  max-width: 400px;
-  word-break: break-all;
-  white-space: normal;
-  line-height: 1.4;
-  backdrop-filter: blur(4px);
-}
-
-.lineage-node .node-location::before {
-  content: '';
-  position: absolute;
-  bottom: calc(100% + 2px);
-  left: 50%;
-  transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-top-color: rgba(15, 23, 42, 0.95);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-  z-index: 1001;
-}
-
-.lineage-node .node-location:hover::after,
-.lineage-node .node-location:hover::before {
-  opacity: 1;
 }
 
 /* ===========================================
@@ -798,23 +776,34 @@
     filter: drop-shadow(0 3px 10px rgba(124, 141, 255, 0.5));
   }
 
-  .flow-container .react-flow__edge-text {
-    fill: #e0e0e0;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  .skeleton-node {
+    background: linear-gradient(
+      90deg,
+      #1e293b 0%,
+      #334155 20%,
+      #475569 40%,
+      #334155 60%,
+      #1e293b 100%
+    );
+    border-color: #334155;
   }
 
-  .flow-container .react-flow__edge-textbg {
-    fill: #1a1a2e;
-    stroke: #404040;
+  .skeleton-node::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.1) 50%,
+      transparent 100%
+    );
   }
 
-  .flow-container .react-flow__node {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  }
-
-  .flow-container .react-flow__node:hover {
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5),
-      0 0 0 3px rgba(124, 141, 255, 0.25);
+  .skeleton-edge {
+    background: linear-gradient(
+      90deg,
+      #334155 0%,
+      #475569 50%,
+      #334155 100%
+    );
   }
 }
 

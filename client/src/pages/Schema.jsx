@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getCachedDatasets, getCachedSchemaHistory } from '../services/cachedApi';
-import { FileJson, ChevronDown, Loader2, Database, Plus, Minus, Edit3, AlertTriangle, Check } from 'lucide-react';
+import { getCachedDatasets, getCachedSchemaHistory, invalidateDatasetCache } from '../services/cachedApi';
+import { FileJson, ChevronDown, Loader2, Database, Plus, Minus, Edit3, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { SchemaTree } from '../components/FieldTree';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import SchemaDiffViewer from '../components/SchemaDiffViewer';
 import './Schema.css';
+import '../styles/buttons.css';
 
 // Parse composite dataset name "bucket:dataset_name" into parts
 function parseDatasetName(name) {
@@ -79,6 +80,14 @@ function Schema() {
       setSchemaHistory([]);
     }
     setLoading(false);
+  };
+
+  // Refresh handler - invalidate cache and reload schema history
+  const handleRefresh = () => {
+    if (selectedDataset) {
+      invalidateDatasetCache();
+      loadSchemaHistory(selectedDataset);
+    }
   };
 
   const toggleVersionSelection = (versionId) => {
@@ -177,7 +186,7 @@ function Schema() {
         icon={FileJson}
       >
         {!initialLoading && datasets.length > 0 && (
-          <>
+          <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-end', justifyContent: 'space-between', width: '100%' }}>
             <div className="selector">
               <label>Dataset</label>
               <div className="select-wrapper">
@@ -203,8 +212,22 @@ function Schema() {
               </div>
             </div>
 
-            {selectedVersions.length === 2 && (
-              <div className="floating-compare">
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                className="refresh-btn"
+                onClick={handleRefresh}
+                disabled={loading}
+                title="Refresh schema history from database"
+              >
+                {loading ? (
+                  <Loader2 size={16} className="loading-spinner" />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                <span>Refresh</span>
+              </button>
+
+              {selectedVersions.length === 2 && (
                 <button
                   className={`diff-btn ${showDiff ? 'active' : ''}`}
                   onClick={() => setShowDiff(!showDiff)}
@@ -212,9 +235,9 @@ function Schema() {
                   <Edit3 size={16} />
                   <span>{showDiff ? 'Hide Diff' : 'Compare Versions'}</span>
                 </button>
-              </div>
-            )}
-          </>
+              )}
+            </div>
+          </div>
         )}
       </PageHeader>
 

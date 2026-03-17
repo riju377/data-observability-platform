@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '../context/ToastContext';
-import { Key, Copy, Trash2, Plus, Loader2, AlertCircle, Terminal, BookOpen, ChevronRight } from 'lucide-react';
+import { Key, Copy, Trash2, Plus, Loader2, AlertCircle, Terminal, BookOpen, ChevronRight, RefreshCw } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
-import { getApiKeys, createApiKey, deleteApiKey } from '../services/api';
+import { createApiKey, deleteApiKey } from '../services/api';
+import { getCachedApiKeys, invalidateApiKeysCache } from '../services/cachedApi';
 import './ApiKeys.css';
+import '../styles/buttons.css';
 
 function ApiKeys() {
   const [keys, setKeys] = useState([]);
@@ -26,8 +28,8 @@ function ApiKeys() {
         setLoading(true);
       }
 
-      const res = await getApiKeys();
-      setKeys(res.data);
+      const keysData = await getCachedApiKeys();
+      setKeys(keysData);
     } catch (err) {
       // 401 handled by interceptor automatically
       console.error('API Keys Error:', err);
@@ -42,6 +44,12 @@ function ApiKeys() {
       setInitialLoading(false);
     }
   }, [toast]);
+
+  // Refresh handler - invalidate cache and reload
+  const handleRefresh = () => {
+    invalidateApiKeysCache();
+    fetchKeys(true); // Show loader during refresh
+  };
 
   useEffect(() => {
     fetchKeys();
@@ -148,6 +156,8 @@ const fetchLatestVersion = async () => {
       setNewKeyName('');
       setNameError('');
       setShowCreateModal(false);
+      // Invalidate cache before refetching
+      invalidateApiKeysCache();
       fetchKeys(false); // Don't show loader when refreshing after creation
       toast.success('API Key Created', 'Your new API key has been generated successfully');
     } catch (err) {
@@ -168,6 +178,8 @@ const fetchLatestVersion = async () => {
     try {
       await deleteApiKey(keyId);
 
+      // Invalidate cache before refetching
+      invalidateApiKeysCache();
       fetchKeys(false); // Don't show loader when refreshing after deletion
       toast.success('API Key Revoked', `"${keyName}" has been permanently revoked`);
     } catch (err) {
@@ -209,17 +221,6 @@ const fetchLatestVersion = async () => {
     setCreatedKey(null);
   };
 
-  if (initialLoading) {
-    return (
-      <div className="api-keys-container">
-        <div className="loading-container">
-          <Loader2 size={48} className="loading-spinner" />
-          <p>Loading API keys...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="api-keys-container">
       {/* Header */}
@@ -228,10 +229,22 @@ const fetchLatestVersion = async () => {
         description="Manage API keys for Spark job integration"
         icon={Key}
       >
-        <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
-          <Plus size={18} />
-          Create API Key
-        </button>
+        {!initialLoading && (
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <button className="refresh-btn" onClick={handleRefresh} disabled={loading} title="Refresh API keys from database">
+              {loading ? (
+                <Loader2 size={16} className="loading-spinner" />
+              ) : (
+                <RefreshCw size={16} />
+              )}
+              <span>Refresh</span>
+            </button>
+            <button className="btn-primary" onClick={() => setShowCreateModal(true)}>
+              <Plus size={18} />
+              Create API Key
+            </button>
+          </div>
+        )}
       </PageHeader>
 
       {/* Success Modal - Shows created key once */}
@@ -388,8 +401,13 @@ const fetchLatestVersion = async () => {
       )}
 
       {/* Keys List */}
-      <div className="keys-list-container">
-        {keys.length === 0 ? (
+      <div className="keys-list-container" style={{ position: 'relative' }}>
+        {initialLoading ? (
+          <div className="loading-container">
+            <Loader2 size={48} className="loading-spinner" />
+            <p>Loading API keys...</p>
+          </div>
+        ) : keys.length === 0 ? (
           <div className="empty-state">
             <Key size={64} className="empty-icon" />
             <h3>No API Keys Yet</h3>
@@ -400,9 +418,27 @@ const fetchLatestVersion = async () => {
             </button>
           </div>
         ) : (
-          <div className="table-container">
-            <table className="keys-table">
-              <thead>
+          <>
+            {loading && !initialLoading && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0, 0, 0, 0.05)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10,
+                borderRadius: '8px',
+              }}>
+                <Loader2 size={32} className="loading-spinner" />
+              </div>
+            )}
+            <div className="table-container">
+              <table className="keys-table">
+                <thead>
                 <tr>
                   <th>Name</th>
                   <th>Key Prefix</th>
@@ -455,6 +491,7 @@ const fetchLatestVersion = async () => {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { getAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, getAlertHistory, getDatasets } from '../services/api';
-import { Bell, Plus, X, Trash2, CheckCircle, XCircle, Mail, AlertTriangle, Loader2, Clock, Send, ShieldAlert, History, List, ChevronDown, Hash, MessageCircle, Pencil, Database, Filter, Globe } from 'lucide-react';
+import { createAlertRule, updateAlertRule, deleteAlertRule } from '../services/api';
+import { getCachedDatasets, getCachedAlertHistory, getCachedAlertRules, invalidateMonitoringCache } from '../services/cachedApi';
+import { Bell, Plus, X, Trash2, CheckCircle, XCircle, Mail, AlertTriangle, Loader2, Clock, Send, ShieldAlert, History, List, ChevronDown, Hash, MessageCircle, Pencil, Database, Filter, Globe, RefreshCw } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './Alerts.css';
+import '../styles/buttons.css';
 
 const INITIAL_FORM = {
   name: '',
@@ -39,20 +41,26 @@ function Alerts() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [rulesRes, historyRes, datasetsRes] = await Promise.all([
-        getAlertRules(),
-        getAlertHistory(720),
-        getDatasets(),
+      const [rulesData, historyData, datasetsData] = await Promise.all([
+        getCachedAlertRules(),
+        getCachedAlertHistory(720),
+        getCachedDatasets(),
       ]);
-      setRules(rulesRes.data || []);
-      setHistory(historyRes.data || []);
-      setDatasets(datasetsRes.data || []);
+      setRules(rulesData || []);
+      setHistory(historyData || []);
+      setDatasets(datasetsData || []);
     } catch (error) {
       console.error('Failed to load alert data:', error);
       setRules([]);
       setHistory([]);
     }
     setLoading(false);
+  };
+
+  // Refresh handler - invalidate cache and reload
+  const handleRefresh = () => {
+    invalidateMonitoringCache();
+    loadData();
   };
 
   const openCreateForm = () => {
@@ -126,6 +134,8 @@ function Alerts() {
       }
 
       closeForm();
+      // Only invalidate and reload alert rules (no need to reload datasets)
+      invalidateMonitoringCache();
       loadData();
     } catch (error) {
       console.error('Failed to save alert rule:', error);
@@ -137,6 +147,8 @@ function Alerts() {
     if (!confirm('Delete this alert rule?')) return;
     try {
       await deleteAlertRule(id);
+      // Invalidate cache and reload
+      invalidateMonitoringCache();
       loadData();
     } catch (error) {
       console.error('Failed to delete alert rule:', error);
@@ -170,10 +182,6 @@ function Alerts() {
   const failedCount = history.filter(h => h.status === 'FAILED').length;
   const activeRules = rules.filter(r => r.enabled).length;
 
-  if (loading) {
-    return <LoadingSpinner message="Loading alerts..." />;
-  }
-
   return (
     <div className="alerts">
       <PageHeader
@@ -181,16 +189,32 @@ function Alerts() {
         description="Configure notifications and view alert history"
         icon={Bell}
       >
-        <button className="btn-primary" onClick={() => showForm ? closeForm() : openCreateForm()}>
-          {showForm ? (
-            <><X size={18} /><span>Cancel</span></>
-          ) : (
-            <><Plus size={18} /><span>New Rule</span></>
-          )}
-        </button>
+        {!loading && (
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <button className="refresh-btn" onClick={handleRefresh} disabled={loading} title="Refresh alert data from database">
+            {loading ? (
+              <Loader2 size={16} className="loading-spinner" />
+            ) : (
+              <RefreshCw size={16} />
+            )}
+            <span>Refresh</span>
+          </button>
+          <button className="btn-primary" onClick={() => showForm ? closeForm() : openCreateForm()}>
+            {showForm ? (
+              <><X size={18} /><span>Cancel</span></>
+            ) : (
+              <><Plus size={18} /><span>New Rule</span></>
+            )}
+          </button>
+        </div>
+        )}
       </PageHeader>
 
-      {/* Stats */}
+      {loading ? (
+        <LoadingSpinner message="Loading alerts..." />
+      ) : (
+        <>
+          {/* Stats */}
       <div className="alert-stats">
         <div className="alert-stat-card">
           <div className="alert-stat-icon rules-icon">
@@ -589,6 +613,8 @@ function Alerts() {
             </div>
           )}
         </>
+      )}
+      </>
       )}
     </div>
   );

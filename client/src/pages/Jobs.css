@@ -158,7 +158,8 @@
   background: var(--surface);
   border-radius: 12px;
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  overflow-x: auto; /* Enable horizontal scrolling */
+  overflow-y: visible;
 }
 
 .jobs-table {

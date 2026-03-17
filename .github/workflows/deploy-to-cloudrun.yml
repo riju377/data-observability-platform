@@ -37,6 +37,17 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Verify API Directory
+        run: |
+          if [ ! -f "./api/main.py" ]; then
+            echo "❌ Error: api/main.py not found!"
+            echo "Current directory: $(pwd)"
+            echo "Contents:"
+            ls -la
+            exit 1
+          fi
+          echo "✅ API directory verified"
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
@@ -49,8 +60,7 @@ jobs:
             --max-instances 10 \
             --timeout 300 \
             --cpu 1 \
-            --platform managed \
-            --quiet
+            --platform managed
 
       - name: Get Service URL
         id: get-url

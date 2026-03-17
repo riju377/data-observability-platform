@@ -38,6 +38,18 @@ export const getCachedAlertHistory = (hours = 24) => {
 };
 
 /**
+ * Cached alert rules - TTL: 2 minutes
+ */
+export const getCachedAlertRules = () => {
+  const key = getCacheKey('alertRules');
+  return apiCache.getOrFetch(
+    key,
+    () => api.getAlertRules().then(res => res.data),
+    120000 // 2 minutes
+  );
+};
+
+/**
  * Cached lineage graph - TTL: 5 minutes (relatively static)
  */
 export const getCachedLineageGraph = (datasetName) => {
@@ -115,4 +127,56 @@ export const invalidateDatasetCache = () => {
 export const invalidateMonitoringCache = () => {
   apiCache.invalidate('anomalies');
   apiCache.invalidate('alertHistory');
+  apiCache.invalidate('alertRules');
+};
+
+/**
+ * Cached jobs list - TTL: 1 minute (dynamic data)
+ */
+export const getCachedJobs = (status = null, name = null, hours = 24) => {
+  const key = getCacheKey('jobs', { status, name, hours });
+  return apiCache.getOrFetch(
+    key,
+    () => api.getJobs(status, name, hours).then(res => res.data),
+    60000 // 1 minute
+  );
+};
+
+/**
+ * Cached jobs summary - TTL: 1 minute
+ */
+export const getCachedJobsSummary = (hours = 24) => {
+  const key = getCacheKey('jobsSummary', { hours });
+  return apiCache.getOrFetch(
+    key,
+    () => api.getJobsSummary(hours).then(res => res.data),
+    60000 // 1 minute
+  );
+};
+
+/**
+ * Invalidate jobs caches
+ */
+export const invalidateJobsCache = () => {
+  apiCache.invalidate('jobs');
+  apiCache.invalidate('jobsSummary');
+};
+
+/**
+ * Cached API keys - TTL: 2 minutes
+ */
+export const getCachedApiKeys = () => {
+  const key = getCacheKey('apiKeys');
+  return apiCache.getOrFetch(
+    key,
+    () => api.getApiKeys().then(res => res.data),
+    120000 // 2 minutes
+  );
+};
+
+/**
+ * Invalidate API keys cache
+ */
+export const invalidateApiKeysCache = () => {
+  apiCache.invalidate('apiKeys');
 };

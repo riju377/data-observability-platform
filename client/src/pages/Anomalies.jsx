@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getAnomalies } from '../services/api';
-import { AlertTriangle, AlertCircle, Info, Clock, Database, Filter, Loader2 } from 'lucide-react';
+import { getCachedAnomalies, invalidateMonitoringCache } from '../services/cachedApi';
+import { AlertTriangle, AlertCircle, Info, Clock, Database, Filter, Loader2, RefreshCw } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import SchemaDiffViewer from '../components/SchemaDiffViewer';
 import AnomalyMetricComparison from '../components/AnomalyMetricComparison';
 import './Anomalies.css';
+import '../styles/buttons.css';
 
 function Anomalies() {
   const [anomalies, setAnomalies] = useState([]);
@@ -20,13 +21,19 @@ function Anomalies() {
     setLoading(true);
     try {
       const severity = filter === 'ALL' ? null : filter;
-      const res = await getAnomalies(168, severity, 100);
-      setAnomalies(res.data || []);
+      const anomaliesData = await getCachedAnomalies(168, severity, 100);
+      setAnomalies(anomaliesData || []);
     } catch (error) {
       console.error('Failed to load anomalies:', error);
       setAnomalies([]);
     }
     setLoading(false);
+  };
+
+  // Refresh handler - invalidate cache and reload
+  const handleRefresh = () => {
+    invalidateMonitoringCache();
+    loadAnomalies();
   };
 
   const getSeverityClass = (severity) => severity.toLowerCase();
@@ -62,19 +69,29 @@ function Anomalies() {
         description="Detected anomalies in the last 7 days"
         icon={AlertTriangle}
       >
-        <div className="filter-section">
-          <Filter size={18} />
-          <div className="filter-buttons">
-            {['ALL', 'CRITICAL', 'WARNING', 'INFO'].map((s) => (
-              <button
-                key={s}
-                className={`filter-btn ${filter === s ? 'active' : ''} ${s.toLowerCase()}`}
-                onClick={() => setFilter(s)}
-              >
-                {s !== 'ALL' && getSeverityIcon(s)}
-                <span>{s}</span>
-              </button>
-            ))}
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <button className="refresh-btn" onClick={handleRefresh} disabled={loading} title="Refresh anomalies from database">
+            {loading ? (
+              <Loader2 size={16} className="loading-spinner" />
+            ) : (
+              <RefreshCw size={16} />
+            )}
+            <span>Refresh</span>
+          </button>
+          <div className="filter-section">
+            <Filter size={18} />
+            <div className="filter-buttons">
+              {['ALL', 'CRITICAL', 'WARNING', 'INFO'].map((s) => (
+                <button
+                  key={s}
+                  className={`filter-btn ${filter === s ? 'active' : ''} ${s.toLowerCase()}`}
+                  onClick={() => setFilter(s)}
+                >
+                  {s !== 'ALL' && getSeverityIcon(s)}
+                  <span>{s}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </PageHeader>

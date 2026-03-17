@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Loader2, Zap, CheckCircle, Clock, XCircle, ArrowLeft,
-  AlertTriangle, AlertOctagon, Info, ThumbsUp, Search, Workflow, Target
+  AlertTriangle, AlertOctagon, Info, ThumbsUp, Search, Workflow, Target, RefreshCw
 } from 'lucide-react';
-import { getJobs, getJob, getJobsSummary } from '../services/api';
+import { getJob } from '../services/api';
+import { getCachedJobs, getCachedJobsSummary, invalidateJobsCache } from '../services/cachedApi';
 import PageHeader from '../components/PageHeader';
 import './Jobs.css';
+import '../styles/buttons.css';
 
 // ─── Utility Functions ───────────────────────────────
 
@@ -249,12 +251,12 @@ function Jobs() {
       setTableLoading(true);
     }
     try {
-      const [jobsRes, summaryRes] = await Promise.all([
-        getJobs(status || null, name || null, hours),
-        getJobsSummary(hours),
+      const [jobsData, summaryData] = await Promise.all([
+        getCachedJobs(status || null, name || null, hours),
+        getCachedJobsSummary(hours),
       ]);
-      setJobs(jobsRes.data || []);
-      setSummary(summaryRes.data || {});
+      setJobs(jobsData || []);
+      setSummary(summaryData || {});
     } catch (err) {
       console.error('Failed to load jobs:', err);
       setJobs([]);
@@ -269,13 +271,11 @@ function Jobs() {
   }, []);
 
   useEffect(() => {
-    if (!selectedJob) {
-      // First load is initial, subsequent loads from filter changes are not
-      const isInitial = initialLoading;
-      loadListData(statusFilter, nameSearch, timeWindow, isInitial);
-    }
+    // Load data on mount and when filters change (not when switching to detail view)
+    const isInitial = initialLoading;
+    loadListData(statusFilter, nameSearch, timeWindow, isInitial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, timeWindow, selectedJob, loadListData]);
+  }, [statusFilter, timeWindow, loadListData]);
 
   // Debounced name search
   const handleNameSearch = (value) => {
@@ -284,6 +284,12 @@ function Jobs() {
     debounceRef.current = setTimeout(() => {
       loadListData(statusFilter, value, timeWindow, false);
     }, 300);
+  };
+
+  // Refresh handler - invalidate cache and reload jobs with current filters
+  const handleRefresh = () => {
+    invalidateJobsCache();
+    loadListData(statusFilter, nameSearch, timeWindow, false);
   };
 
   // ── Load detail data ──
@@ -329,6 +335,7 @@ function Jobs() {
     setStatusFilter={setStatusFilter}
     nameSearch={nameSearch}
     handleNameSearch={handleNameSearch}
+    handleRefresh={handleRefresh}
     timeWindow={timeWindow}
     setTimeWindow={setTimeWindow}
     sortField={sortField}
@@ -344,20 +351,10 @@ function Jobs() {
 
 function ListView({
   initialLoading, tableLoading, summary, jobs, statusFilter, setStatusFilter,
-  nameSearch, handleNameSearch, timeWindow, setTimeWindow,
+  nameSearch, handleNameSearch, handleRefresh, timeWindow, setTimeWindow,
   sortField, sortDir, handleSort, onSelectJob,
   bannerDismissed, dismissBanner,
 }) {
-  // Full-page loading only on initial load
-  if (initialLoading) {
-    return (
-      <div className="jobs-loading">
-        <Loader2 className="jobs-loading-spinner" size={32} />
-        <span>Loading jobs...</span>
-      </div>
-    );
-  }
-
   const totalJobs = summary?.total_jobs ?? 0;
   const successCount = summary?.success_count ?? 0;
   const failedCount = summary?.failed_count ?? 0;
@@ -383,8 +380,15 @@ function ListView({
         icon={Workflow}
       />
 
-      {/* Onboarding Banner */}
-      {showBanner && (
+      {initialLoading ? (
+        <div className="jobs-loading">
+          <Loader2 className="jobs-loading-spinner" size={32} />
+          <span>Loading jobs...</span>
+        </div>
+      ) : (
+        <>
+          {/* Onboarding Banner */}
+          {showBanner && (
         <div style={{
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           color: 'white',
@@ -500,6 +504,19 @@ function ListView({
             </button>
           ))}
         </div>
+        <button
+          className="refresh-btn"
+          onClick={handleRefresh}
+          disabled={tableLoading}
+          title="Refresh jobs data from database"
+        >
+          {tableLoading ? (
+            <Loader2 size={16} className="loading-spinner" />
+          ) : (
+            <RefreshCw size={16} />
+          )}
+          <span>Refresh</span>
+        </button>
       </div>
 
       {/* Table */}
@@ -596,6 +613,8 @@ function ListView({
           </table>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

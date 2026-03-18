@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react';
 import { getCachedDatasets, getCachedSchemaHistory, invalidateDatasetCache } from '../services/cachedApi';
 import { FileJson, ChevronDown, Loader2, Database, Plus, Minus, Edit3, AlertTriangle, Check, RefreshCw } from 'lucide-react';
 import { SchemaTree } from '../components/FieldTree';
-import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import SchemaDiffViewer from '../components/SchemaDiffViewer';
 import './Schema.css';
 import '../styles/buttons.css';
+import '../styles/skeleton.css';
 
 // Parse composite dataset name "bucket:dataset_name" into parts
 function parseDatasetName(name) {
@@ -242,7 +242,7 @@ function Schema() {
       </PageHeader>
 
       {initialLoading ? (
-        <LoadingSpinner message="Loading datasets..." />
+        <SchemaSkeletonLoader />
       ) : datasets.length === 0 ? (
         <div className="empty-state">
           <FileJson size={48} strokeWidth={1.5} />
@@ -250,10 +250,7 @@ function Schema() {
           <p>Run a Spark job to capture schema information.</p>
         </div>
       ) : loading ? (
-          <div className="loading-content" >
-            <Loader2 className="loading-spinner" size={32} />
-            <span>Loading schema history...</span>
-          </div>
+          <SchemaSkeletonLoader />
         ) : schemaHistory.length === 0 ? (
           <div className="empty-state">
             <FileJson size={48} strokeWidth={1.5} />
@@ -388,6 +385,62 @@ function Schema() {
         )
       }
     </div >
+  );
+}
+
+function SchemaSkeletonLoader() {
+  return (
+    <div className="schema-content">
+      <div className="versions-section">
+        {/* Section header: title + hint (matches .section-header) */}
+        <div className="section-header">
+          <div className="skel skel-text-lg" style={{ width: 140 }} />
+          <div className="skel" style={{ width: 200, height: 28, borderRadius: 20 }} />
+        </div>
+
+        {/* Grid of version cards (matches .versions-list grid) */}
+        <div className="skel-version-list">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className={`skel-version-card skel-delay-${i}`}>
+              {/* Version header: checkbox + version number + badge | date */}
+              <div className="skel-version-header">
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                  <div className={`skel skel-delay-${i}`} style={{ width: 18, height: 18, borderRadius: 4 }} />
+                  <div className={`skel skel-delay-${i}`} style={{ width: 28, height: 22, borderRadius: 4 }} />
+                  {i === 0 && <div className={`skel skel-delay-${i}`} style={{ width: 56, height: 20, borderRadius: 4 }} />}
+                </div>
+                <div className={`skel skel-text skel-delay-${i}`} style={{ width: 130 }} />
+              </div>
+
+              {/* Change type badge (shown on some cards) */}
+              {i > 0 && (
+                <div>
+                  <div className={`skel skel-delay-${i}`} style={{ width: 90, height: 20, borderRadius: 4 }} />
+                </div>
+              )}
+
+              {/* Schema fields section with border-top */}
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem', marginTop: i > 0 ? 0 : '0.25rem' }}>
+                {/* Fields header: icon + "N fields" */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                  <div className={`skel skel-delay-${i}`} style={{ width: 14, height: 14, borderRadius: 3 }} />
+                  <div className={`skel skel-text-sm skel-delay-${i}`} style={{ width: 55 }} />
+                </div>
+                {/* Field tree rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  {[0, 1, 2, 3, 4].map((j) => (
+                    <div key={j} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <div className={`skel skel-text-sm skel-delay-${i}`} style={{ width: `${25 + j * 7}%` }} />
+                      <div className={`skel skel-text-sm skel-delay-${i}`} style={{ width: 45 }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

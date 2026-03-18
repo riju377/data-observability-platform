@@ -8,6 +8,17 @@
 -- 3. api/migrations/001_alerting_system.sql
 -- 4. api/migrations/002_column_lineage.sql
 -- 5. api/migrations/003_data_quality_rules.sql
+-- 6. api/migrations/003_multi_tenancy_fixes.sql
+-- 7. api/migrations/004_partition_tracking.sql
+-- 8. api/migrations/005_normalize_jobs.sql
+-- 9. api/migrations/006_fix_constraints.sql
+-- 10. api/migrations/007_simplify_jobs.sql
+-- 11. api/migrations/008_add_executor_config.sql
+-- 12. api/migrations/009_add_alert_rules_org.sql
+-- 13. api/migrations/010_remove_job_from_column_lineage.sql
+-- 14. api/migrations/011_jobs_partition_key.sql
+-- 15. api/migrations/012_jobs_cleanup.sql
+-- 16. api/migrations/013_drop_partition_context.sql
 
 -- Enable Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -187,32 +198,35 @@ CREATE INDEX IF NOT EXISTS idx_freshness_org ON freshness_sla(organization_id);
 -- =====================================================
 
 -- Jobs (Master table for job definitions and latest execution state)
+-- One row per (org, job_name, partition_key) — enables per-country tracking
 CREATE TABLE IF NOT EXISTS jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID REFERENCES organizations(id),
     job_name VARCHAR(500) NOT NULL,
-    description TEXT,
 
-    -- Execution State (Denormalized from migration 007)
+    -- Execution State (latest run overwrites via upsert)
     status VARCHAR(50),
-    metadata JSONB,
     started_at TIMESTAMP,
     ended_at TIMESTAMP,
     last_execution_id VARCHAR(200), -- Spark's job_id/app_id
     execution_metrics JSONB,
 
-    -- Executor Configuration (for utilization metrics)
+    -- Executor Configuration (from spark.executor.memory/cores)
     executor_memory_mb BIGINT,
     executor_cores INTEGER,
 
+    -- Per-country/region job tracking (e.g. "country=US")
+    partition_key VARCHAR(1000) DEFAULT 'GLOBAL' NOT NULL,
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(organization_id, job_name)
+    CONSTRAINT uq_jobs_org_name_partition UNIQUE(organization_id, job_name, partition_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_org_name ON jobs(organization_id, job_name);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_updated ON jobs(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_partition_key ON jobs(partition_key);
 
 -- =====================================================
 -- ALERTING SYSTEM
@@ -268,10 +282,9 @@ CREATE TABLE IF NOT EXISTS column_lineage_edges (
     target_column VARCHAR(255) NOT NULL,
     transform_type VARCHAR(50) NOT NULL,
     expression TEXT,
-    job_id VARCHAR(100),
-    job_name VARCHAR(500),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_dataset_id, source_column, target_dataset_id, target_column, job_id)
+    CONSTRAINT column_lineage_edges_unique
+        UNIQUE(source_dataset_id, source_column, target_dataset_id, target_column)
 );
 
 CREATE INDEX IF NOT EXISTS idx_col_lineage_source ON column_lineage_edges(source_dataset_id, source_column);

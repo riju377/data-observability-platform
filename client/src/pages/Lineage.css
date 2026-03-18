@@ -438,133 +438,52 @@
 }
 
 .skeleton-node {
+  --skel-from: #eff1f5;
+  --skel-to: #f7f8fa;
   width: 160px;
   height: 70px;
   border-radius: 10px;
-  background: linear-gradient(
-    90deg,
-    #e2e8f0 0%,
-    #f1f5f9 20%,
-    #cbd5e1 40%,
-    #f1f5f9 60%,
-    #e2e8f0 100%
-  );
-  background-size: 400% 100%;
-  animation: skeletonShimmer 1.8s ease-in-out infinite, skeletonPulse 2s ease-in-out infinite;
-  border: 2px solid #cbd5e1;
+  background-color: var(--skel-from);
+  animation: lineageSkelPulse 1.8s ease-in-out infinite;
+  border: 2px solid var(--skel-from);
   position: relative;
-  overflow: hidden;
-}
-
-.skeleton-node::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.6) 50%,
-    transparent 100%
-  );
-  animation: skeletonSweep 2s ease-in-out infinite;
-}
-
-.skeleton-node:nth-child(1) {
-  animation-delay: 0s;
 }
 
 .skeleton-node:nth-child(3) {
-  animation-delay: 0.3s;
+  animation-delay: 0.15s;
 }
 
 .skeleton-node:nth-child(5) {
-  animation-delay: 0.6s;
+  animation-delay: 0.3s;
 }
 
 .skeleton-node--active {
-  border-color: rgba(102, 126, 234, 0.4);
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
-  animation: skeletonShimmer 1.8s ease-in-out infinite,
-             skeletonPulseActive 2s ease-in-out infinite;
+  border-color: rgba(102, 126, 234, 0.3);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
 }
 
 .skeleton-edge {
+  --skel-from: #eff1f5;
+  --skel-to: #f7f8fa;
   width: 60px;
   height: 3px;
-  background: linear-gradient(
-    90deg,
-    #cbd5e1 0%,
-    #94a3b8 50%,
-    #cbd5e1 100%
-  );
-  background-size: 200% 100%;
-  animation: skeletonShimmer 1.2s ease-in-out infinite, skeletonEdgePulse 1.5s ease-in-out infinite;
+  background-color: var(--skel-from);
+  animation: lineageSkelPulse 1.8s ease-in-out infinite;
   border-radius: 2px;
-  position: relative;
 }
 
 .skeleton-edge:nth-child(2) {
-  animation-delay: 0.2s;
+  animation-delay: 0.15s;
 }
 
 .skeleton-edge:nth-child(4) {
-  animation-delay: 0.4s;
+  animation-delay: 0.3s;
 }
 
-@keyframes skeletonShimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: -100% 0;
-  }
-}
-
-@keyframes skeletonSweep {
-  0% {
-    left: -100%;
-  }
-  50%, 100% {
-    left: 100%;
-  }
-}
-
-@keyframes skeletonPulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.85;
-    transform: scale(0.98);
-  }
-}
-
-@keyframes skeletonPulseActive {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.15);
-  }
-  50% {
-    opacity: 0.9;
-    transform: scale(0.97);
-    box-shadow: 0 0 0 6px rgba(102, 126, 234, 0.25);
-  }
-}
-
-@keyframes skeletonEdgePulse {
-  0%, 100% {
-    opacity: 0.8;
-    transform: scaleX(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scaleX(1.1);
-  }
+@keyframes lineageSkelPulse {
+  0%   { background-color: var(--skel-from); }
+  50%  { background-color: var(--skel-to); }
+  100% { background-color: var(--skel-from); }
 }
 
 /* ===========================================
@@ -759,52 +678,31 @@
    Dark Mode Support
    =========================================== */
 
-@media (prefers-color-scheme: dark) {
-  .flow-container::after {
-    background: rgba(15, 23, 42, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
+[data-theme='dark'] .flow-container::after {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
 
-  .flow-container .react-flow__edge-path {
-    opacity: 0.95;
-    stroke: #7c8dff;
-    filter: drop-shadow(0 2px 6px rgba(124, 141, 255, 0.25));
-  }
+[data-theme='dark'] .flow-container .react-flow__edge-path {
+  opacity: 0.95;
+  stroke: #7c8dff;
+  filter: drop-shadow(0 2px 6px rgba(124, 141, 255, 0.25));
+}
 
-  .flow-container .react-flow__edge:hover .react-flow__edge-path {
-    stroke: #8a9bff;
-    filter: drop-shadow(0 3px 10px rgba(124, 141, 255, 0.5));
-  }
+[data-theme='dark'] .flow-container .react-flow__edge:hover .react-flow__edge-path {
+  stroke: #8a9bff;
+  filter: drop-shadow(0 3px 10px rgba(124, 141, 255, 0.5));
+}
 
-  .skeleton-node {
-    background: linear-gradient(
-      90deg,
-      #1e293b 0%,
-      #334155 20%,
-      #475569 40%,
-      #334155 60%,
-      #1e293b 100%
-    );
-    border-color: #334155;
-  }
+[data-theme='dark'] .skeleton-node {
+  --skel-from: #2a2f3a;
+  --skel-to: #353b48;
+  border-color: #334155;
+}
 
-  .skeleton-node::after {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.1) 50%,
-      transparent 100%
-    );
-  }
-
-  .skeleton-edge {
-    background: linear-gradient(
-      90deg,
-      #334155 0%,
-      #475569 50%,
-      #334155 100%
-    );
-  }
+[data-theme='dark'] .skeleton-edge {
+  --skel-from: #2a2f3a;
+  --skel-to: #353b48;
 }
 
 /* ===========================================

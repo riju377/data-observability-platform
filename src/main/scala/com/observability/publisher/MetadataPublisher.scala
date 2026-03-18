@@ -99,19 +99,39 @@ object MetadataPublisher extends LazyLogging {
     getClient(sparkConf) match {
       case Some(apiClient) =>
         Future {
-          // Log the metadata being published (at least the ID and name)
-          logger.info(s"Publishing schema/metadata for job: ${metadata.jobId}, Name: ${metadata.jobName.getOrElse("unknown")}")
-          logger.info(s"Metadata payload metrics: ${metadata.metrics}")
-          
-          apiClient.publishMetadata(metadata) match {
-            case Success(_) =>
-              logger.debug(s"Metadata published for job: ${metadata.jobId}")
-            case Failure(e) =>
-              logger.error(s"Failed to publish metadata: ${e.getMessage}")
-          }
+          doPublishMetadata(apiClient, metadata)
         }
       case None =>
         logger.warn("Skipping metadata publish - no API client available")
+    }
+  }
+
+  /**
+   * Publish metadata synchronously on the CALLING thread.
+   *
+   * Used by onApplicationEnd to ensure the metadata POST completes before
+   * JVM shutdown hooks kill the async thread pool. When apps exit without
+   * explicit spark.stop(), the Hadoop ShutdownHookManager has a ~30s timeout
+   * that interrupts all hooks — which can kill in-flight async HTTP requests
+   * before they reach the API.
+   */
+  def publishSync(metadata: JobMetadata, sparkConf: Option[SparkConf] = None): Unit = {
+    getClient(sparkConf) match {
+      case Some(apiClient) =>
+        doPublishMetadata(apiClient, metadata)
+      case None =>
+        logger.warn("Skipping metadata publish - no API client available")
+    }
+  }
+
+  private def doPublishMetadata(apiClient: ObservabilityApiClient, metadata: JobMetadata): Unit = {
+    logger.info(s"Publishing schema/metadata for job: ${metadata.jobId}, Name: ${metadata.jobName.getOrElse("unknown")}")
+    logger.info(s"Metadata payload metrics: ${metadata.metrics}")
+    apiClient.publishMetadata(metadata) match {
+      case Success(_) =>
+        logger.info(s"Metadata published successfully for job: ${metadata.jobId}")
+      case Failure(e) =>
+        logger.error(s"Failed to publish metadata: ${e.getMessage}")
     }
   }
 

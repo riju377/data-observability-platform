@@ -54,7 +54,17 @@ jobs:
             --source ./api \
             --region ${{ env.REGION }} \
             --allow-unauthenticated \
-            --set-env-vars DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            --set-env-vars "\
+          DATABASE_URL=${{ secrets.DATABASE_URL }},\
+          JWT_SECRET=${{ secrets.JWT_SECRET }},\
+          JWT_EXPIRY_HOURS=${{ secrets.JWT_EXPIRY_HOURS }},\
+          EMAIL_BACKEND=${{ secrets.EMAIL_BACKEND }},\
+          GMAIL_CLIENT_ID=${{ secrets.GMAIL_CLIENT_ID }},\
+          GMAIL_CLIENT_SECRET=${{ secrets.GMAIL_CLIENT_SECRET }},\
+          GMAIL_REFRESH_TOKEN=${{ secrets.GMAIL_REFRESH_TOKEN }},\
+          EMAIL_FROM=${{ secrets.EMAIL_FROM }},\
+          API_BASE_URL=${{ secrets.API_BASE_URL }},\
+          DASHBOARD_URL=${{ secrets.DASHBOARD_URL }}" \
             --memory 512Mi \
             --min-instances 0 \
             --max-instances 10 \

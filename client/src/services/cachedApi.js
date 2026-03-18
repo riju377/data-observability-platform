@@ -133,11 +133,11 @@ export const invalidateMonitoringCache = () => {
 /**
  * Cached jobs list - TTL: 1 minute (dynamic data)
  */
-export const getCachedJobs = (status = null, name = null, hours = 24) => {
-  const key = getCacheKey('jobs', { status, name, hours });
+export const getCachedJobs = (status = null, name = null, hours = 24, country = null) => {
+  const key = getCacheKey('jobs', { status, name, hours, country });
   return apiCache.getOrFetch(
     key,
-    () => api.getJobs(status, name, hours).then(res => res.data),
+    () => api.getJobs(status, name, hours, 100, 0, country).then(res => res.data),
     60000 // 1 minute
   );
 };
@@ -145,12 +145,24 @@ export const getCachedJobs = (status = null, name = null, hours = 24) => {
 /**
  * Cached jobs summary - TTL: 1 minute
  */
-export const getCachedJobsSummary = (hours = 24) => {
-  const key = getCacheKey('jobsSummary', { hours });
+export const getCachedJobsSummary = (hours = 24, country = null) => {
+  const key = getCacheKey('jobsSummary', { hours, country });
   return apiCache.getOrFetch(
     key,
-    () => api.getJobsSummary(hours).then(res => res.data),
+    () => api.getJobsSummary(hours, country).then(res => res.data),
     60000 // 1 minute
+  );
+};
+
+/**
+ * Cached job countries - TTL: 2 minutes
+ */
+export const getCachedJobCountries = () => {
+  const key = getCacheKey('jobCountries');
+  return apiCache.getOrFetch(
+    key,
+    () => api.getJobCountries().then(res => res.data),
+    120000 // 2 minutes
   );
 };
 
@@ -160,6 +172,7 @@ export const getCachedJobsSummary = (hours = 24) => {
 export const invalidateJobsCache = () => {
   apiCache.invalidate('jobs');
   apiCache.invalidate('jobsSummary');
+  apiCache.invalidate('jobCountries');
 };
 
 /**

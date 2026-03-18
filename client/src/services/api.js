@@ -86,16 +86,22 @@ export const getSchemaDiff = (datasetName, fromVersion, toVersion) =>
   api.get(`/datasets/${datasetName}/schema/diff?from_version=${fromVersion}&to_version=${toVersion}`);
 
 // Jobs
-export const getJobs = (status = null, jobName = null, hours = 24, limit = 100, offset = 0) => {
+export const getJobs = (status = null, jobName = null, hours = 24, limit = 100, offset = 0, country = null) => {
   let url = `/jobs?hours=${hours}&limit=${limit}&offset=${offset}`;
   if (status) url += `&status=${status}`;
   if (jobName) url += `&job_name=${encodeURIComponent(jobName)}`;
+  if (country) url += `&country=${encodeURIComponent(country)}`;
   return api.get(url);
 };
 export const getJob = (uuid) => api.get(`/jobs/${uuid}`);
 export const getJobStages = (uuid) => api.get(`/jobs/${uuid}/stages`);
 export const getJobStage = (uuid, stageId) => api.get(`/jobs/${uuid}/stages/${stageId}`);
-export const getJobsSummary = (hours = 24) => api.get(`/jobs/stats/summary?hours=${hours}`);
+export const getJobsSummary = (hours = 24, country = null) => {
+  let url = `/jobs/stats/summary?hours=${hours}`;
+  if (country) url += `&country=${encodeURIComponent(country)}`;
+  return api.get(url);
+};
+export const getJobCountries = () => api.get('/jobs/countries');
 
 // API Keys Management
 export const getApiKeys = () => api.get('/api/v1/auth/api-keys');

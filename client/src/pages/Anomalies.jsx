@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { getCachedAnomalies, invalidateMonitoringCache } from '../services/cachedApi';
 import { AlertTriangle, AlertCircle, Info, Clock, Database, Filter, Loader2, RefreshCw } from 'lucide-react';
-import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import SchemaDiffViewer from '../components/SchemaDiffViewer';
 import AnomalyMetricComparison from '../components/AnomalyMetricComparison';
 import './Anomalies.css';
 import '../styles/buttons.css';
+import '../styles/skeleton.css';
 
 function Anomalies() {
   const [anomalies, setAnomalies] = useState([]);
@@ -97,9 +97,27 @@ function Anomalies() {
       </PageHeader>
 
       {loading ? (
-        <div className="loading">
-          <Loader2 className="loading-spinner" size={32} />
-          <span>Loading anomalies...</span>
+        <div className="skel-card-list">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className={`skel-card skel-delay-${i}`} style={{ borderLeft: '4px solid var(--border)' }}>
+              <div className="skel-card-header">
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                  <div className={`skel skel-badge skel-delay-${i}`} style={{ width: 80 }} />
+                  <div className={`skel skel-badge skel-delay-${i}`} style={{ width: 140 }} />
+                </div>
+              </div>
+              <div className="skel-card-body">
+                <div className={`skel skel-text-lg skel-delay-${i}`} style={{ width: '40%' }} />
+                <div className={`skel skel-text skel-delay-${i}`} style={{ width: '90%' }} />
+                <div className={`skel skel-text skel-delay-${i}`} style={{ width: '70%' }} />
+                <div className={`skel skel-delay-${i}`} style={{ height: 60, borderRadius: 8, marginTop: 4 }} />
+              </div>
+              <div className="skel-card-footer">
+                <div className={`skel skel-text-sm skel-delay-${i}`} style={{ width: 60 }} />
+                <div className={`skel skel-text-sm skel-delay-${i}`} style={{ width: 120 }} />
+              </div>
+            </div>
+          ))}
         </div>
       ) : anomalies.length === 0 ? (
         <div className="empty-state">

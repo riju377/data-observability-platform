@@ -1604,11 +1604,36 @@ async def test_alert(
 # Job Execution & Stage Metrics Endpoints
 # ============================================
 
+@app.get("/jobs/countries", tags=["Jobs"])
+async def get_job_countries(org: OrgContext = Depends(get_current_org)):
+    """
+    Get distinct country values from jobs partition_key.
+
+    **Example:**
+    ```
+    GET /jobs/countries
+    ```
+    """
+    query = """
+        SELECT DISTINCT substring(partition_key from 'country=([^,]+)') AS country
+        FROM jobs
+        WHERE organization_id = %s
+          AND partition_key LIKE '%%country=%%'
+        ORDER BY country
+    """
+    try:
+        results = execute_query(query, (org.org_id,))
+        return [r['country'] for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
 @app.get("/jobs", response_model=List[Job], tags=["Jobs"])
 async def list_jobs(
     status: Optional[str] = Query(None, description="Filter by status (Running, Success, Failed)"),
     job_name: Optional[str] = Query(None, description="Filter by job name (substring match)"),
     application_id: Optional[str] = Query(None, description="Filter by application ID"),
+    country: Optional[str] = Query(None, description="Filter by country code (e.g. US, IN)"),
     hours: Optional[int] = Query(None, ge=1, le=720, description="Filter last N hours"),
     limit: int = Query(50, ge=1, le=1000, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip"),
@@ -1621,7 +1646,7 @@ async def list_jobs(
 
     **Example:**
     ```
-    GET /jobs?status=Success&hours=24&limit=20
+    GET /jobs?status=Success&country=US&hours=24&limit=20
     ```
     """
     query = """
@@ -1629,21 +1654,22 @@ async def list_jobs(
             id::text,
             organization_id::text,
             job_name,
-            description,
             status,
-            metadata,
             started_at,
             ended_at,
             last_execution_id,
             execution_metrics,
             created_at,
             updated_at,
+            partition_key,
+            executor_memory_mb,
+            executor_cores,
             CASE
                 WHEN started_at IS NOT NULL AND ended_at IS NOT NULL
                 THEN EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000
                 ELSE NULL
             END::integer AS duration_ms,
-            metadata->>'application_id' AS application_id
+            last_execution_id AS application_id
         FROM jobs
         WHERE organization_id = %s
     """
@@ -1659,9 +1685,12 @@ async def list_jobs(
         params.append(f"%{job_name}%")
 
     if application_id:
-        # Check metadata ->> application_id
-        query += " AND metadata->>'application_id' = %s"
+        query += " AND last_execution_id = %s"
         params.append(application_id)
+
+    if country:
+        query += " AND partition_key LIKE %s"
+        params.append(f"%country={country}%")
 
     if hours:
         query += " AND started_at > NOW() - (INTERVAL '1 hour' * %s)"
@@ -1697,21 +1726,22 @@ async def get_job(job_uuid: str, org: OrgContext = Depends(get_current_org)):
             id::text,
             organization_id::text,
             job_name,
-            description,
             status,
-            metadata,
             started_at,
             ended_at,
             last_execution_id,
             execution_metrics,
             created_at,
             updated_at,
+            partition_key,
+            executor_memory_mb,
+            executor_cores,
             CASE
                 WHEN started_at IS NOT NULL AND ended_at IS NOT NULL
                 THEN EXTRACT(EPOCH FROM (ended_at - started_at)) * 1000
                 ELSE NULL
             END::integer AS duration_ms,
-            metadata->>'application_id' AS application_id
+            last_execution_id AS application_id
         FROM jobs
         WHERE id = %s AND organization_id = %s
     """
@@ -1773,6 +1803,7 @@ async def get_job_stage(job_uuid: str, stage_id: int, org: OrgContext = Depends(
 @app.get("/jobs/stats/summary", tags=["Jobs"])
 async def get_jobs_summary(
     hours: int = Query(24, ge=1, le=720, description="Time window in hours"),
+    country: Optional[str] = Query(None, description="Filter by country code (e.g. US, IN)"),
     org: OrgContext = Depends(get_current_org)
 ):
     """
@@ -1782,7 +1813,7 @@ async def get_jobs_summary(
 
     **Example:**
     ```
-    GET /jobs/stats/summary?hours=24
+    GET /jobs/stats/summary?hours=24&country=US
     ```
     """
     query = """
@@ -1794,9 +1825,14 @@ async def get_jobs_summary(
         WHERE started_at > NOW() - (INTERVAL '1 hour' * %s)
           AND organization_id = %s
     """
+    params = [hours, org.org_id]
+
+    if country:
+        query += " AND partition_key LIKE %s"
+        params.append(f"%country={country}%")
 
     try:
-        result = execute_single(query, (hours, org.org_id))
+        result = execute_single(query, tuple(params))
 
         return {
             "time_window_hours": hours,
@@ -1806,6 +1842,40 @@ async def get_jobs_summary(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+# ============================================
+# Admin / Maintenance Endpoints
+# ============================================
+
+@app.post("/admin/metrics/cleanup", tags=["Admin"])
+async def cleanup_old_metrics(
+    keep_last_n: int = Query(30, ge=1, le=1000, description="Number of most recent rows to keep per partition group"),
+    org: OrgContext = Depends(get_current_org)
+):
+    """
+    Clean up old dataset_metrics rows, keeping only the last N per (dataset_id, job_name, partition_key) group.
+    """
+    query = """
+        DELETE FROM dataset_metrics
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY dataset_id, job_name, partition_key
+                        ORDER BY collected_at DESC
+                    ) AS rn
+                FROM dataset_metrics
+                WHERE organization_id = %s
+            ) ranked
+            WHERE rn > %s
+        )
+    """
+    try:
+        result = execute_query(query, (org.org_id, keep_last_n))
+        return {"status": "ok", "message": f"Cleanup complete. Kept last {keep_last_n} rows per partition group."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
 
 
 # ============================================

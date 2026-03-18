@@ -186,13 +186,18 @@ class ObservabilityApiClient(
       |  "job_id": "${metadata.jobId}",
       |  "job_name": ${metadata.jobName.map(n => s""""$n"""").getOrElse("null")},
       |  "application_id": ${metadata.applicationId.map(id => s""""$id"""").getOrElse("null")},
+      |  "status": "${metadata.status}",
+      |  "error_message": ${metadata.errorMessage.map(m => s""""${m.replace("\"", "\\\"").take(500)}"""").getOrElse("null")},
       |  "started_at": "$startedAtStr",
       |  "ended_at": "$endedAtStr",
       |  "inputs": [$inputsJson],
       |  "outputs": [$outputsJson],
       |  "lineage_edges": [$edgesJson],
       |  "metrics": {$metricsJson},
-      |  "execution_metrics": $executionMetricsJson
+      |  "execution_metrics": $executionMetricsJson,
+      |  "partition_key": "${metadata.partitionKey}",
+      |  "executor_memory_mb": ${metadata.executorMemoryMb.map(_.toString).getOrElse("null")},
+      |  "executor_cores": ${metadata.executorCores.map(_.toString).getOrElse("null")}
       |}""".stripMargin
     
     post("/api/v1/ingest/metadata", payload)

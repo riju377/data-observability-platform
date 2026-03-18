@@ -5,7 +5,6 @@ import { getCachedDatasets, getCachedLineageGraph, invalidateDatasetCache } from
 import { GitBranch, ChevronDown, ArrowRight, Loader2, Database, Workflow, RefreshCw } from 'lucide-react';
 import { getLayoutedElements } from '../utils/layoutGraph';
 import LineageNode from '../components/lineage/LineageNode';
-import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './Lineage.css';
 import '../styles/buttons.css';

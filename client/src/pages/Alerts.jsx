@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { createAlertRule, updateAlertRule, deleteAlertRule } from '../services/api';
 import { getCachedDatasets, getCachedAlertHistory, getCachedAlertRules, invalidateMonitoringCache } from '../services/cachedApi';
 import { Bell, Plus, X, Trash2, CheckCircle, XCircle, Mail, AlertTriangle, Loader2, Clock, Send, ShieldAlert, History, List, ChevronDown, Hash, MessageCircle, Pencil, Database, Filter, Globe, RefreshCw } from 'lucide-react';
-import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './Alerts.css';
 import '../styles/buttons.css';
+import '../styles/skeleton.css';
 
 const INITIAL_FORM = {
   name: '',
@@ -211,7 +211,51 @@ function Alerts() {
       </PageHeader>
 
       {loading ? (
-        <LoadingSpinner message="Loading alerts..." />
+        <>
+          {/* Stat cards skeleton */}
+          <div className="skel-stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className={`skel-stat-card skel-delay-${i}`}>
+                <div className={`skel skel-icon skel-delay-${i}`} style={{ width: 44, height: 44 }} />
+                <div className="skel-content">
+                  <div className={`skel skel-value skel-delay-${i}`} style={{ height: 26 }} />
+                  <div className={`skel skel-label skel-delay-${i}`} />
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Tabs skeleton */}
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+            <div className="skel skel-delay-1" style={{ width: 100, height: 36, borderRadius: 8 }} />
+            <div className="skel skel-delay-2" style={{ width: 110, height: 36, borderRadius: 8 }} />
+          </div>
+          {/* Rule cards skeleton */}
+          <div className="skel-card-list">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={`skel-card skel-delay-${i}`}>
+                <div className="skel-card-header">
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <div className={`skel skel-circle skel-delay-${i}`} style={{ width: 32, height: 32 }} />
+                    <div className={`skel skel-text skel-delay-${i}`} style={{ width: 160 }} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div className={`skel skel-badge skel-delay-${i}`} style={{ width: 65 }} />
+                    <div className={`skel skel-badge skel-delay-${i}`} style={{ width: 70 }} />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  {[0, 1, 2].map((j) => (
+                    <div key={j} className={`skel skel-delay-${i}`} style={{ height: 36, borderRadius: 6 }} />
+                  ))}
+                </div>
+                <div className="skel-card-footer">
+                  <div className={`skel skel-delay-${i}`} style={{ width: 60, height: 28, borderRadius: 6 }} />
+                  <div className={`skel skel-delay-${i}`} style={{ width: 70, height: 28, borderRadius: 6 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       ) : (
         <>
           {/* Stats */}

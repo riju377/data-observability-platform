@@ -125,6 +125,14 @@ class IngestPayload(BaseModel):
     executor_memory_mb: Optional[int] = None
     executor_cores: Optional[int] = None
 
+    # Job status (SUCCESS / FAILED) - sent by listener
+    status: Optional[str] = None
+    error_message: Optional[str] = None
+
+    # Partition key for per-country job tracking (sent by listener)
+    partition_key: Optional[str] = None
+    partition_context: Optional[dict] = None
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -327,6 +335,33 @@ def generalize_path(path: Optional[str]) -> str:
     return s
 
 
+def extract_partition_context(path: Optional[str]) -> dict:
+    """
+    Extract geo/dimensional partition values from a path.
+    Returns a dict like {"country": "US", "region": "eu-west-1"}.
+    """
+    if not path:
+        return {}
+
+    context = {}
+    # Match Hive-style key=value patterns for geo dimensions
+    geo_keys = r'(country|region|zone|geo|location|market)'
+    for match in re.finditer(rf'/{geo_keys}=([^/]+)', path, re.IGNORECASE):
+        key = match.group(1).lower()
+        value = match.group(2)
+        if value != '*':  # Skip already-wildcarded values
+            context[key] = value
+
+    # Also check for standalone 2-letter country codes as path segments
+    if 'country' not in context:
+        segments = path.split('/')
+        for seg in segments:
+            if re.match(r'^[A-Z]{2}$', seg):
+                context['country'] = seg
+                break
+
+    return context
+
 
 # ============================================
 # Background Processing
@@ -405,26 +440,52 @@ def process_metadata(payload: IngestPayload, org_id: str):
                     # Ensure job_name is not None
                     final_job_name = payload.job_name or payload.job_id or "Unknown Job"
 
+                    # Derive partition_key from output locations
+                    # This enables per-country job tracking
+                    # Use Scala-provided partition key if available (clean geo-only key).
+                    # Falls back to scanning outputs for older listener versions.
+                    if payload.partition_key and payload.partition_key != "GLOBAL":
+                        job_partition_key = payload.partition_key
+                    else:
+                        # Backward compat: scan outputs for geo context
+                        job_partition_key = "GLOBAL"
+                        for out_table in payload.outputs:
+                            out_loc = out_table.location or infer_location_from_name(out_table.name)
+                            if not out_loc and out_table.name in dataset_ids:
+                                cursor.execute(
+                                    "SELECT location FROM datasets WHERE id = %s",
+                                    (dataset_ids[out_table.name],)
+                                )
+                                ds_row_loc = cursor.fetchone()
+                                if ds_row_loc and ds_row_loc['location']:
+                                    out_loc = ds_row_loc['location']
+                            if out_loc:
+                                candidate_ctx = extract_partition_context(out_loc)
+                                if candidate_ctx:
+                                    # Build partition key from geo context (e.g. "country=US")
+                                    job_partition_key = ",".join(f"{k}={v}" for k, v in sorted(candidate_ctx.items()))
+                                    break
+
                     # Prepare execution metrics
-                    logger.info(f"Creating/updating job entry: {final_job_name} ({payload.job_id}) for org {org_id}")
+                    logger.info(f"Creating/updating job entry: {final_job_name} ({payload.job_id}) partition={job_partition_key} for org {org_id}")
                     exec_metrics_json = json.dumps(payload.execution_metrics)
-                    status = "SUCCESS" # We assume success if we got here
+                    status = str(payload.status).upper() if payload.status else "SUCCESS"
 
                     # Use new started_at/ended_at fields, fallback to timestamp for backwards compatibility
                     # Always use UTC timezone for consistency across EMR and local runs
                     started_at = payload.started_at or payload.timestamp or datetime.now(timezone.utc)
                     ended_at = payload.ended_at or payload.timestamp or datetime.now(timezone.utc)
 
-                    logger.info(f"Upserting job: org={org_id}, name={final_job_name}, started_at={started_at}")
+                    logger.info(f"Upserting job: org={org_id}, name={final_job_name}, partition={job_partition_key}, started_at={started_at}")
 
                     cursor.execute("""
                         INSERT INTO jobs (
-                            organization_id, job_name, updated_at,
-                            status, started_at, ended_at, last_execution_id, execution_metrics, metadata,
+                            organization_id, job_name, partition_key, updated_at,
+                            status, started_at, ended_at, last_execution_id, execution_metrics,
                             executor_memory_mb, executor_cores
                         )
-                        VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
-                        ON CONFLICT (organization_id, job_name)
+                        VALUES (%s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (organization_id, job_name, partition_key)
                         DO UPDATE SET
                             updated_at = NOW(),
                             status = EXCLUDED.status,
@@ -432,19 +493,18 @@ def process_metadata(payload: IngestPayload, org_id: str):
                             ended_at = EXCLUDED.ended_at,
                             last_execution_id = EXCLUDED.last_execution_id,
                             execution_metrics = EXCLUDED.execution_metrics,
-                            metadata = EXCLUDED.metadata,
                             executor_memory_mb = EXCLUDED.executor_memory_mb,
                             executor_cores = EXCLUDED.executor_cores
                         RETURNING id
                     """, (
                         org_id,
                         final_job_name,
+                        job_partition_key,
                         status,
                         started_at,
                         ended_at,
                         payload.job_id,
                         exec_metrics_json,
-                        json.dumps({"application_id": payload.application_id}) if payload.application_id else None,
                         payload.executor_memory_mb,
                         payload.executor_cores
                     ))
@@ -454,8 +514,8 @@ def process_metadata(payload: IngestPayload, org_id: str):
                         # Fallback: SELECT if RETURNING failed
                         logger.warning(f"RETURNING failed for job {final_job_name}, falling back to SELECT")
                         cursor.execute(
-                            "SELECT id FROM jobs WHERE organization_id = %s AND job_name = %s",
-                            (org_id, final_job_name)
+                            "SELECT id FROM jobs WHERE organization_id = %s AND job_name = %s AND partition_key = %s",
+                            (org_id, final_job_name, job_partition_key)
                         )
                         job_row = cursor.fetchone()
 

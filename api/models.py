@@ -512,15 +512,14 @@ class Job(BaseModel):
     id: str
     organization_id: Optional[str] = None
     job_name: str
-    description: Optional[str] = None
     status: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None
     last_execution_id: Optional[str] = None
     execution_metrics: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    partition_key: Optional[str] = "GLOBAL"
 
     # Computed fields (now set directly from SQL queries)
     duration_ms: Optional[int] = None

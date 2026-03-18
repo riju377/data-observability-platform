@@ -6,7 +6,6 @@ import { apiCache } from '../utils/cache';
 import { Network, ChevronDown, Loader2, Database, Code, AlertTriangle, Zap, Target, ArrowRight, Copy, Check, Info, RefreshCw } from 'lucide-react';
 import { getLayoutedElements } from '../utils/layoutGraph';
 import ColumnLineageNode from '../components/lineage/ColumnLineageNode';
-import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import './ColumnLineage.css';
 

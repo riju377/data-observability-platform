@@ -6,6 +6,7 @@ import { createApiKey, deleteApiKey } from '../services/api';
 import { getCachedApiKeys, invalidateApiKeysCache } from '../services/cachedApi';
 import './ApiKeys.css';
 import '../styles/buttons.css';
+import '../styles/skeleton.css';
 
 function ApiKeys() {
   const [keys, setKeys] = useState([]);
@@ -403,9 +404,28 @@ const fetchLatestVersion = async () => {
       {/* Keys List */}
       <div className="keys-list-container" style={{ position: 'relative' }}>
         {initialLoading ? (
-          <div className="loading-container">
-            <Loader2 size={48} className="loading-spinner" />
-            <p>Loading API keys...</p>
+          <div className="skel-table">
+            <div className="skel-table-header" style={{ gridTemplateColumns: '1.5fr 1fr 1fr 1.2fr 1fr 0.8fr' }}>
+              {['Name', 'Key Prefix', 'Scopes', 'Created', 'Expires', 'Actions'].map((h, i) => (
+                <div key={i} className={`skel skel-text skel-delay-${Math.min(i, 4)}`} style={{ width: '80%' }} />
+              ))}
+            </div>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={`skel-table-row skel-delay-${i}`} style={{ gridTemplateColumns: '1.5fr 1fr 1fr 1.2fr 1fr 0.8fr' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <div className={`skel skel-circle skel-delay-${i}`} style={{ width: 16, height: 16 }} />
+                  <div className={`skel skel-text skel-delay-${i}`} style={{ width: '70%' }} />
+                </div>
+                <div className={`skel skel-text skel-delay-${i}`} style={{ width: '60%' }} />
+                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                  <div className={`skel skel-badge skel-delay-${i}`} style={{ width: 48 }} />
+                  <div className={`skel skel-badge skel-delay-${i}`} style={{ width: 40 }} />
+                </div>
+                <div className={`skel skel-text skel-delay-${i}`} style={{ width: '75%' }} />
+                <div className={`skel skel-badge skel-delay-${i}`} style={{ width: 50 }} />
+                <div className={`skel skel-delay-${i}`} style={{ width: 70, height: 30, borderRadius: 6 }} />
+              </div>
+            ))}
           </div>
         ) : keys.length === 0 ? (
           <div className="empty-state">

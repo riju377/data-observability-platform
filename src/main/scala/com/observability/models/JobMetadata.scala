@@ -28,7 +28,10 @@ case class JobMetadata(
   executorCores: Option[Int] = None,
 
   // Error information (if failed)
-  errorMessage: Option[String] = None
+  errorMessage: Option[String] = None,
+
+  // Partition key for per-country job tracking (e.g. "country=US")
+  partitionKey: String = "GLOBAL"
 )
 
 /**

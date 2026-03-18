@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { getCachedDatasets, getCachedAnomalies, getCachedAlertHistory } from '../services/cachedApi';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { Database, AlertTriangle, Bell, TrendingUp, LayoutDashboard } from 'lucide-react';
-import LoadingSpinner from '../components/LoadingSpinner';
 import PageHeader from '../components/PageHeader';
 import GettingStarted from '../components/GettingStarted';
 import './Dashboard.css';
+import '../styles/skeleton.css';
 
 function Dashboard() {
   const [stats, setStats] = useState({ datasets: 0, anomalies: 0, alerts: 0 });
@@ -95,15 +95,45 @@ function Dashboard() {
       />
 
       {(() => {
-        console.log('🔍 Dashboard: Render check:', { loading, stats, showingGuide: stats.datasets === 0 });
         if (loading) {
-          return <LoadingSpinner message="Loading dashboard..." />;
+          return (
+            <>
+              {/* Stat cards skeleton */}
+              <div className="skel-stat-grid">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className={`skel-stat-card skel-delay-${i}`}>
+                    <div className={`skel skel-icon skel-delay-${i}`} />
+                    <div className="skel-content">
+                      <div className={`skel skel-value skel-delay-${i}`} />
+                      <div className={`skel skel-label skel-delay-${i}`} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Chart skeleton */}
+              <div className="charts">
+                <div className="skel-chart-container">
+                  <div className="skel-chart-title">
+                    <div className="skel skel-circle" style={{ width: 20, height: 20 }} />
+                    <div className="skel skel-text" style={{ width: 180 }} />
+                  </div>
+                  <div className="skel skel-donut skel-delay-1" />
+                  <div className="skel-chart-legend">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="skel-legend-item">
+                        <div className={`skel skel-circle skel-delay-${i + 1}`} style={{ width: 12, height: 12 }} />
+                        <div className={`skel skel-text skel-delay-${i + 1}`} style={{ width: 60 }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          );
         }
         if (stats.datasets === 0) {
-          console.log('⚠️ Dashboard: Showing integration guide because stats.datasets === 0');
           return <GettingStarted />;
         }
-        console.log('✅ Dashboard: Showing dashboard with', stats.datasets, 'datasets');
         return (
         <>
           <div className="stats-grid">

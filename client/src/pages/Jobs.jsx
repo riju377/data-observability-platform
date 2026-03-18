@@ -4,10 +4,11 @@ import {
   AlertTriangle, AlertOctagon, Info, ThumbsUp, Search, Workflow, Target, RefreshCw
 } from 'lucide-react';
 import { getJob } from '../services/api';
-import { getCachedJobs, getCachedJobsSummary, invalidateJobsCache } from '../services/cachedApi';
+import { getCachedJobs, getCachedJobsSummary, getCachedJobCountries, invalidateJobsCache } from '../services/cachedApi';
 import PageHeader from '../components/PageHeader';
 import './Jobs.css';
 import '../styles/buttons.css';
+import '../styles/skeleton.css';
 
 // ─── Utility Functions ───────────────────────────────
 
@@ -222,6 +223,8 @@ function Jobs() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
+  const [countryFilter, setCountryFilter] = useState('');
+  const [countries, setCountries] = useState([]);
   const [nameSearch, setNameSearch] = useState('');
   const [timeWindow, setTimeWindow] = useState(24);
   const [sortField, setSortField] = useState('started_at');
@@ -244,7 +247,7 @@ function Jobs() {
   };
 
   // ── Load list data ──
-  const loadListData = useCallback(async (status, name, hours, isInitial = false) => {
+  const loadListData = useCallback(async (status, name, hours, country, isInitial = false) => {
     if (isInitial) {
       setInitialLoading(true);
     } else {
@@ -252,8 +255,8 @@ function Jobs() {
     }
     try {
       const [jobsData, summaryData] = await Promise.all([
-        getCachedJobs(status || null, name || null, hours),
-        getCachedJobsSummary(hours),
+        getCachedJobs(status || null, name || null, hours, country || null),
+        getCachedJobsSummary(hours, country || null),
       ]);
       setJobs(jobsData || []);
       setSummary(summaryData || {});
@@ -271,25 +274,30 @@ function Jobs() {
   }, []);
 
   useEffect(() => {
+    getCachedJobCountries().then(setCountries).catch(() => setCountries([]));
+  }, []);
+
+  useEffect(() => {
     // Load data on mount and when filters change (not when switching to detail view)
     const isInitial = initialLoading;
-    loadListData(statusFilter, nameSearch, timeWindow, isInitial);
+    loadListData(statusFilter, nameSearch, timeWindow, countryFilter, isInitial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, timeWindow, loadListData]);
+  }, [statusFilter, countryFilter, timeWindow, loadListData]);
 
   // Debounced name search
   const handleNameSearch = (value) => {
     setNameSearch(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      loadListData(statusFilter, value, timeWindow, false);
+      loadListData(statusFilter, value, timeWindow, countryFilter, false);
     }, 300);
   };
 
   // Refresh handler - invalidate cache and reload jobs with current filters
   const handleRefresh = () => {
     invalidateJobsCache();
-    loadListData(statusFilter, nameSearch, timeWindow, false);
+    getCachedJobCountries().then(setCountries).catch(() => setCountries([]));
+    loadListData(statusFilter, nameSearch, timeWindow, countryFilter, false);
   };
 
   // ── Load detail data ──
@@ -333,6 +341,9 @@ function Jobs() {
     jobs={sortedJobs}
     statusFilter={statusFilter}
     setStatusFilter={setStatusFilter}
+    countryFilter={countryFilter}
+    setCountryFilter={setCountryFilter}
+    countries={countries}
     nameSearch={nameSearch}
     handleNameSearch={handleNameSearch}
     handleRefresh={handleRefresh}
@@ -351,6 +362,7 @@ function Jobs() {
 
 function ListView({
   initialLoading, tableLoading, summary, jobs, statusFilter, setStatusFilter,
+  countryFilter, setCountryFilter, countries,
   nameSearch, handleNameSearch, handleRefresh, timeWindow, setTimeWindow,
   sortField, sortDir, handleSort, onSelectJob,
   bannerDismissed, dismissBanner,
@@ -363,6 +375,7 @@ function ListView({
 
   const columns = [
     { key: 'job_name', label: 'Job Name' },
+    { key: 'country', label: 'Country' },
     { key: 'status', label: 'Status' },
     { key: 'started_at', label: 'Last Run' },
     { key: 'duration_ms', label: 'Duration' },
@@ -381,10 +394,46 @@ function ListView({
       />
 
       {initialLoading ? (
-        <div className="jobs-loading">
-          <Loader2 className="jobs-loading-spinner" size={32} />
-          <span>Loading jobs...</span>
-        </div>
+        <>
+          {/* KPI cards skeleton */}
+          <div className="skel-stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={`skel-stat-card skel-delay-${i}`}>
+                <div className={`skel skel-icon skel-delay-${i}`} style={{ width: 44, height: 44 }} />
+                <div className="skel-content">
+                  <div className={`skel skel-value skel-delay-${i}`} style={{ height: 26 }} />
+                  <div className={`skel skel-label skel-delay-${i}`} />
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Filters skeleton */}
+          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+            <div className="skel skel-delay-1" style={{ width: 130, height: 38, borderRadius: 8 }} />
+            <div className="skel skel-delay-1" style={{ width: 130, height: 38, borderRadius: 8 }} />
+            <div className="skel skel-delay-2" style={{ width: 200, height: 38, borderRadius: 8 }} />
+            <div style={{ display: 'flex', gap: '2px', marginLeft: 'auto' }}>
+              {[0, 1, 2, 3].map((j) => (
+                <div key={j} className={`skel skel-delay-${j}`} style={{ width: 42, height: 34, borderRadius: 6 }} />
+              ))}
+            </div>
+          </div>
+          {/* Table skeleton */}
+          <div className="skel-table">
+            <div className="skel-table-header" style={{ gridTemplateColumns: `repeat(${columns.length}, 1fr)` }}>
+              {columns.map((col, i) => (
+                <div key={i} className={`skel skel-text skel-delay-${Math.min(i, 4)}`} style={{ width: '75%' }} />
+              ))}
+            </div>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className={`skel-table-row skel-delay-${i % 4}`} style={{ gridTemplateColumns: `repeat(${columns.length}, 1fr)` }}>
+                {columns.map((col, j) => (
+                  <div key={j} className={`skel skel-text skel-delay-${i % 4}`} style={{ width: `${55 + (j % 3) * 15}%` }} />
+                ))}
+              </div>
+            ))}
+          </div>
+        </>
       ) : (
         <>
           {/* Onboarding Banner */}
@@ -482,6 +531,18 @@ function ListView({
           <option value="SUCCESS">Success</option>
           <option value="FAILED">Failed</option>
         </select>
+        {countries.length > 0 && (
+          <select
+            className="jobs-filter-select"
+            value={countryFilter}
+            onChange={(e) => setCountryFilter(e.target.value)}
+          >
+            <option value="">All Countries</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        )}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <Search size={16} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)' }} />
           <input
@@ -594,6 +655,7 @@ function ListView({
               {jobs.map((job) => (
                 <tr key={job.id} onClick={() => onSelectJob(job)}>
                   <td>{job.job_name || '—'}</td>
+                  <td>{job.partition_key?.match(/country=([^,]+)/)?.[1] || job.partition_key || 'GLOBAL'}</td>
                   <td>
                     <span className={`jobs-status-badge ${(job.status || '').toLowerCase()}`}>
                       {job.status || '—'}

@@ -690,9 +690,9 @@ object QueryPlanParser extends LazyLogging {
     
     // Patterns to match dynamic segments
     val patterns = Seq(
-      // Key=Value patterns (keep key, wildcard value)
+      // Key=Value patterns (keep key, wildcard value) - TEMPORAL ONLY
+      // Country/region/geo partitions are intentionally preserved for per-country tracking
       "^(date|year|month|day|hour|dt|partition_date)=.+".r -> "$1=*",
-      "^(country|region|zone|geo|location|market)=.+".r -> "$1=*",
 
       // Value-only patterns (full wildcard)
       "^\\d{4}-\\d{2}-\\d{2}$".r -> "*",           // 2024-01-01
@@ -702,9 +702,7 @@ object QueryPlanParser extends LazyLogging {
       "^\\d{4}$".r -> "*",                         // 2024 (Year)
       "^(0[1-9]|1[0-2])$".r -> "*",                // 01-12 (Month)
       "^(0[1-9]|[12][0-9]|3[01])$".r -> "*",       // 01-31 (Day)
-      "^[A-Z]{2}$".r -> "*",                       // US, UK (uppercase country code)
-      "^[a-z]{2}$".r -> "*",                       // th, us (lowercase country code)
-      "^[a-z]{2}-[a-z]+-\\d+$".r -> "*",           // us-east-1 (Region)
+      "^[a-z]{2}-[a-z]+-\\d+$".r -> "*",           // us-east-1 (AWS Region)
       "^(staging|prod|dev|test)$".r -> "*"         // Environment
     )
 

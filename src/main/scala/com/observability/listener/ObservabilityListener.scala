@@ -91,6 +91,13 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
   // Track locality distribution per job
   private val taskLocality = mutable.Map[Int, mutable.Map[String, Int]]()  // jobId -> (locality -> count)
 
+  // Track application-level failure state (set in onJobEnd if any job fails)
+  @volatile private var appFailed = false
+  @volatile private var appErrorMessage: Option[String] = None
+
+  // Track partition key for per-country job tracking (set in onSuccess from output paths)
+  @volatile private var appPartitionKey: String = "GLOBAL"
+
   // Track if we've already registered as QueryExecutionListener (do it only once)
   @volatile private var queryListenerRegistered = false
 
@@ -251,22 +258,30 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
       applicationId = appApplicationId,
       startTime = new Timestamp(appStartTime.getOrElse(applicationEnd.time)),
       endTime = Some(new Timestamp(applicationEnd.time)),
-      status = JobStatus.Success, // We assume success if we got here, or simple completion
-      errorMessage = None,
+      status = if (appFailed) JobStatus.Failed else JobStatus.Success,
+      errorMessage = appErrorMessage,
       inputTables = appInputs.toSeq,
       outputTables = appOutputs.toSeq,
       metrics = finalMetrics,
       executorMemoryMb = appExecutorMemoryMb,
-      executorCores = appExecutorCores
+      executorCores = appExecutorCores,
+      partitionKey = appPartitionKey
     )
     
+    // Publish metadata SYNCHRONOUSLY on this thread to ensure it completes
+    // before JVM shutdown hooks kill the async thread pool.
+    // When apps exit without explicit spark.stop(), the Hadoop ShutdownHookManager
+    // has a ~30s timeout that interrupts everything, which can kill in-flight
+    // async HTTP requests queued behind lineage publishes.
     try {
-      publishMetadata(appMetadata)
+      logger.info(s"Job ${appMetadata.jobId} completed: ${appMetadata.status}, ${calculateDuration(appMetadata)}ms, " +
+        s"${appMetadata.inputTables.size} inputs, ${appMetadata.outputTables.size} outputs")
+      MetadataPublisher.publishSync(appMetadata, sparkConf)
     } catch {
       case e: Exception =>
         logger.error(s"Failed to publish application metrics: ${e.getMessage}")
     }
-    
+
     MetadataPublisher.shutdown()
   }
 
@@ -402,6 +417,22 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
    * This is where we finalize metadata and publish it.
    */
   override def onJobEnd(jobEnd: SparkListenerJobEnd): Unit = {
+
+    // Check if this job failed and track it at the application level.
+    // Note: JobFailed is package-private in Spark, so we match on JobSucceeded
+    // and treat anything else as failure.
+    if (jobEnd.jobResult == JobSucceeded) {
+      logger.debug(s"Job ${jobEnd.jobId} succeeded")
+    } else {
+      val errorMsg = jobEnd.jobResult.toString
+      logger.warn(s"Job ${jobEnd.jobId} FAILED: $errorMsg")
+      synchronized {
+        appFailed = true
+        appErrorMessage = Some(appErrorMessage.getOrElse("") +
+          (if (appErrorMessage.isDefined) "; " else "") +
+          s"Job ${jobEnd.jobId}: $errorMsg")
+      }
+    }
 
     activeJobs.get(jobEnd.jobId) match {
       case Some(metadata) =>
@@ -686,18 +717,34 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
     logger.info(s"onSuccess($funcName, ${durationNs / 1000000}ms): " +
       s"inputs=[${inputTables.map(_.name).mkString(",")}] -> outputs=[${outputTables.map(_.name).mkString(",")}]")
 
-    // Accumulate lineage for job-end metadata (maps query outputs back to the job)
-    // onSuccess runs on the calling thread where spark.sql.execution.id is available
+    // Directly accumulate into app-level lineage from onSuccess.
+    // This is more reliable than the jobLineage → onJobEnd path because
+    // onSuccess (calling thread) and onJobEnd (async listener thread) race,
+    // and onJobEnd may read jobLineage before onSuccess populates it.
+    synchronized {
+      appInputs ++= inputTables
+      appOutputs ++= outputTables
+    }
+
+    // Track last output path with geo context for per-country partition key.
+    // "Last wins" — if multiple queries write to geo-partitioned paths,
+    // the last onSuccess call determines the partition key.
+    for (out <- outputTables; loc <- out.location) {
+      val ctx = extractGeoContext(loc)
+      if (ctx.nonEmpty) {
+        appPartitionKey = ctx.toSeq.sorted.map { case (k, v) => s"$k=$v" }.mkString(",")
+      }
+    }
+
+    // Also store in jobLineage for per-job correlation (best-effort)
     try {
       val sqlExecId = qe.sparkSession.sparkContext.getLocalProperty("spark.sql.execution.id")
       if (sqlExecId != null) {
         sqlExecutionToJob.get(sqlExecId).foreach { jobId =>
           val (existingInputs, existingOutputs) = jobLineage.getOrElse(jobId, (Seq.empty, Seq.empty))
-          // Deduplicate by table name (later entries win)
           val mergedInputs = (existingInputs ++ inputTables).map(t => t.name -> t).toMap.values.toSeq
           val mergedOutputs = (existingOutputs ++ outputTables).map(t => t.name -> t).toMap.values.toSeq
           jobLineage.put(jobId, (mergedInputs, mergedOutputs))
-          logger.debug(s"Updated jobLineage for job $jobId: ${mergedInputs.size} inputs, ${mergedOutputs.size} outputs")
         }
       }
     } catch {
@@ -815,6 +862,26 @@ class ObservabilityListener extends SparkListener with QueryExecutionListener wi
       case Some(end) => end.getTime - metadata.startTime.getTime
       case None => 0L
     }
+  }
+
+  /**
+   * Extract geo/dimensional context from an output path.
+   * Returns e.g. Map("country" -> "US") for paths like /country=US/ or /US/.
+   */
+  private def extractGeoContext(path: String): Map[String, String] = {
+    val ctx = mutable.Map[String, String]()
+    // Hive-style: /country=US/, /region=eu-west-1/, etc.
+    val geoPattern = "/(country|region|zone|geo|location|market)=([^/]+)".r
+    geoPattern.findAllMatchIn(path).foreach { m =>
+      ctx(m.group(1).toLowerCase) = m.group(2)
+    }
+    // Fallback: standalone 2-letter uppercase segment (e.g., /US/)
+    if (!ctx.contains("country")) {
+      path.split("/").find(s => s.matches("[A-Z]{2}")).foreach { code =>
+        ctx("country") = code
+      }
+    }
+    ctx.toMap
   }
 
   /**
